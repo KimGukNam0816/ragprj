@@ -20,7 +20,8 @@ export default function Home(){
  const bottom=useRef<HTMLDivElement>(null),textarea=useRef<HTMLTextAreaElement>(null);
  useEffect(()=>{try{const old=JSON.parse(localStorage.getItem('shipping-chats')||'[]');if(Array.isArray(old))setChats(old);}catch{}setChatId(crypto.randomUUID());if(window.innerWidth<740)setSidebar(false);setReady(true);fetch('/api/backend/health').then(r=>r.ok?r.json():null).then(setStatus).catch(()=>{});},[]);
  useEffect(()=>{if(ready){try{localStorage.setItem('shipping-chats',JSON.stringify(chats.slice(0,20)));}catch{}}},[chats,ready]);
- useEffect(()=>bottom.current?.scrollIntoView({behavior:'smooth'}),[messages,sending]);
+ // Some browsers return a Promise from scrollIntoView; effects must not return it.
+ useEffect(()=>{bottom.current?.scrollIntoView({behavior:'smooth'});},[messages,sending]);
  useEffect(()=>{const key=(e:KeyboardEvent)=>{if(e.key==='Escape'){setSettings(false);setSelectedSource(null);}if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'&&!sending){e.preventDefault();setChatId(crypto.randomUUID());setMessages([]);setInput('');}};window.addEventListener('keydown',key);return()=>window.removeEventListener('keydown',key);},[sending]);
  function updateChat(msgs:Message[],id:string){setMessages(msgs);setChats(old=>{const found=old.find(c=>c.id===id);const item={id,title:found?.title||msgs[0]?.text.slice(0,28)||'새 채팅',messages:msgs};return [item,...old.filter(c=>c.id!==id)].slice(0,20);});}
  function newChat(){if(sending)return;setChatId(crypto.randomUUID());setMessages([]);setInput('');textarea.current?.focus();}
