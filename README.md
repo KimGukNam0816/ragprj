@@ -1,5 +1,7 @@
 # Advanced 해운 RAG
 
+새 PC 설치·청킹·색인·API·채팅 실행: **[SETUP.md](SETUP.md)**. 단계별 진단은 `python -m scripts.check_integration --help`를 참조하세요.
+
 구현 경로: **연결 점검 → 청킹·색인 → 실제 리랭커 → 6개 구성 비교 → RAGAS/Judge·운영·보안 집계 → FastAPI/Uvicorn → Next.js/React 채팅**.
 현재 실행은 RTX4090 연동 smoke입니다. 전체 문서 검색 성능이나 RTX5060 공식 지표가 아닙니다. Redis·인증·권한승인은 후속 단계입니다.
 
