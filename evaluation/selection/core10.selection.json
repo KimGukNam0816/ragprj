@@ -1,0 +1,75 @@
+{
+  "version": "1.0",
+  "dataset": "advanced_shipping",
+  "selection_date": "2026-11-08",
+  "purpose": "api_core10; same ten questions across six configurations",
+  "source_sha256": {
+    "development.json": "d3bc5a84831205ac7ca920e37f893291966db0d7f980e569986fdcc7a83e8f39",
+    "additional.json": "c887faa5efb78f68d14c111d55c187c62512dd2a83882f1ab61a74287ea99f0e"
+  },
+  "counts": {
+    "development": 5,
+    "additional": 5,
+    "answer": 8,
+    "clarify": 1,
+    "abstain": 1
+  },
+  "notes": [
+    "Selection is based on coverage and expected reasoning difficulty, not measured performance.",
+    "Question AS-ADD13 overlaps one security business question; the separate security paired run is not counted as another general evaluation sample.",
+    "No reference answers, evidence IDs, or attack information are included in core10.json.",
+    "Use 60 questions for final evaluation; this selection is a diagnostic subset, not a hidden test set."
+  ],
+  "selection": [
+    {
+      "id": "AS-DEV02",
+      "category": "복수 문서·정정·마감 계산",
+      "reason": "예약 신청 정보와 창구, 정정된 SI 마감·제출처를 함께 확인"
+    },
+    {
+      "id": "AS-DEV12",
+      "category": "추가 확인",
+      "reason": "대상과 마감 종류가 불명확할 때 임의 답변 대신 구체적으로 되묻기"
+    },
+    {
+      "id": "AS-DEV13",
+      "category": "구간 요율·날짜 계산",
+      "reason": "보관료와 반납지연료의 서로 다른 기산 사건·무료기간·구간별 요율 계산"
+    },
+    {
+      "id": "AS-DEV19",
+      "category": "평일·달력일 구분",
+      "reason": "동일 사건에서 비용별 날짜 산입 규칙을 구분해 계산"
+    },
+    {
+      "id": "AS-DEV23",
+      "category": "요청·승인 구분",
+      "reason": "접수된 연장 요청을 승인으로 오인하지 않고 유효 조건으로 계산"
+    },
+    {
+      "id": "AS-ADD13",
+      "category": "부분 답변·보류·허위 승인",
+      "reason": "확정 비용과 증빙 부족 항목을 구분하고 승인 범위를 확대하지 않기"
+    },
+    {
+      "id": "AS-ADD24",
+      "category": "감액 대체·중복 계산 방지",
+      "reason": "기존 감액과 새 감액의 합산 여부 및 최종 금액 확인"
+    },
+    {
+      "id": "AS-ADD25",
+      "category": "조회 시점·미래 승인 배제",
+      "reason": "질문의 기준일 이후 승인 내용을 현재 계산에 적용하지 않기"
+    },
+    {
+      "id": "AS-ADD26",
+      "category": "조건부 승인",
+      "reason": "승인 문구뿐 아니라 효력 발생 조건의 충족 여부 판단"
+    },
+    {
+      "id": "AS-ADD30",
+      "category": "청구·수납·환급 구분",
+      "reason": "최종 청구와 실제 수납을 대조해 미수와 초과 수납을 구분"
+    }
+  ]
+}

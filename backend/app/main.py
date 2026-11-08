@@ -1,0 +1,67 @@
+import json
+import threading
+import time
+from pathlib import Path
+
+from fastapi import FastAPI, Header, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+
+from .config import get_settings
+from .connections import check_connections
+from .memory import add_memory
+from .pipeline import run_query
+from .schemas import MemoryRequest, QueryRequest, QueryResponse, ServiceError
+
+app=FastAPI(title='해운 문서 도우미',version='0.2.0',description='RTX4090 integration smoke. All inference stays local. No formal evaluation metrics.')
+s=get_settings()
+app.add_middleware(CORSMiddleware,allow_origins=[s.frontend_origin,'http://localhost:3000'],allow_methods=['GET','POST'],allow_headers=['Content-Type','X-Entrypoint'])
+gpu_lock=threading.Lock()
+
+
+@app.exception_handler(ServiceError)
+async def service_error(request,exc):
+    return JSONResponse(status_code=exc.http_status,content={'detail':{'code':exc.code,'message':exc.message}})
+
+
+@app.get('/health')
+def health():
+    return {'status':'ok','scope':'smoke','local_only':s.force_local_only,'metric_eligible':False,'model':s.local_llm_model}
+
+
+@app.get('/status')
+def status():
+    indexes={}
+    for profile in ['bge','qwen']:
+        path=s.runtime_dir/'indexes'/f'active_{profile}.json'
+        indexes[profile]=json.loads(path.read_text(encoding='utf-8')) if path.exists() else None
+    return {'scope':'smoke','model':s.local_llm_model,'local_only':s.force_local_only,'indexes':{k:{'collection':v['collection'],'scope':v['scope']} if v else None for k,v in indexes.items()},'retrieval':{'candidate_k':s.dense_candidate_k,'top_n':s.final_top_k},'auth_enabled':False}
+
+
+@app.get('/connections')
+async def connections():
+    return await check_connections(s)
+
+
+@app.post('/query',response_model=QueryResponse)
+def query(request:QueryRequest,x_entrypoint:str=Header(default='api')):
+    started=time.perf_counter()
+    entry='web' if x_entrypoint=='web' else 'api'
+    try:
+        with gpu_lock:
+            response,_=run_query(s,request,entrypoint=entry,deadline=started+s.request_timeout_seconds)
+        response.latency_ms=round((time.perf_counter()-started)*1000)
+        return response
+    except ServiceError:
+        raise
+    except Exception as exc:
+        raise HTTPException(502,detail={'code':'pipeline_error','message':'답변 처리 중 오류가 발생했습니다. 저장된 실행 기록을 확인하세요.','type':type(exc).__name__}) from None
+
+
+@app.post('/memory')
+def save_memory(request:MemoryRequest):
+    try:
+        with gpu_lock:
+            return add_memory(request.text,request.user_id)
+    except Exception as exc:
+        raise HTTPException(502,detail={'code':getattr(exc,'code','memory_error'),'message':getattr(exc,'message','Memory operation failed'),'type':type(exc).__name__}) from None

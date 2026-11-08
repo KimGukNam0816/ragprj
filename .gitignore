@@ -1,0 +1,96 @@
+# Secrets and machine-specific configuration (keep sanitized examples)
+.env
+.env.*
+!.env.example
+.envrc
+*.pem
+*.key
+*.p12
+*.pfx
+credentials.json
+service-account*.json
+
+# Python environments, bytecode, build and test caches
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+.python-version
+*.egg-info/
+/build/
+/dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Supplied PDFs/evaluation datasets and generated reports/screenshots
+# Keep evaluation/ Python code and selection manifests for reproducibility.
+/data/
+/output/
+
+# RAG vectors, Mem0 history, traces, checkpoints and local databases
+/runtime/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+*.sqlite-shm
+*.sqlite-wal
+*.sqlite3-shm
+*.sqlite3-wal
+*.faiss
+
+# Downloaded model weights and caches (never vendor GPU models)
+/models/
+/checkpoints/
+/hf_cache/
+.huggingface/
+.ollama/
+*.safetensors
+*.gguf
+*.ggml
+*.onnx
+*.pt
+*.pth
+*.ckpt
+
+# Local logs and temporary files
+logs/
+tmp/
+.cache/
+*.log
+*.tmp
+*.temp
+
+# Next.js / React dependencies and generated files
+node_modules/
+.next/
+/frontend/out/
+/frontend/coverage/
+/frontend/.vercel/
+/frontend/next-env.d.ts
+*.tsbuildinfo
+
+# Editor, OS and merge leftovers
+.vscode/
+.idea/
+# Local legacy API connection scratchpad; not part of the RAG application.
+/test.py
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.swp
+*.swo
+*~
+*.orig
+
+# Commit these: .env.example, uv.lock, frontend/package-lock.json,
+# source code, tests, README, and evaluation/selection/.
