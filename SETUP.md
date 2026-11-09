@@ -70,6 +70,8 @@ uv sync --locked --python 3.12 --extra memory --extra dev
 npm.cmd --prefix frontend ci
 ```
 
+`frontend/.npmrc`에 다운로드 대기 시간 10분, 재시도 3회, 동시 연결 3개 및 캐시 우선 사용을 설정했습니다. 위 명령에도 자동 적용되어 느린 네트워크의 다운로드 시간 초과를 줄입니다. 네트워크 단절이나 레지스트리 장애가 계속되면 실패할 수 있습니다.
+
 CUDA 설치 확인:
 
 ```powershell
