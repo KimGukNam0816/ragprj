@@ -3,11 +3,10 @@
 새 PC 설치·청킹·색인·API·채팅 실행: **[SETUP.md](SETUP.md)**. 단계별 진단은 `python -m scripts.check_integration --help`를 참조하세요.
 
 구현 경로: **연결 점검 → 청킹·색인 → 실제 리랭커 → 6개 구성 비교 → RAGAS/Judge·운영·보안 집계 → FastAPI/Uvicorn → Next.js/React 채팅**.
-현재 실행은 RTX4090 연동 smoke입니다. 전체 문서 검색 성능이나 RTX5060 공식 지표가 아닙니다. Redis·인증·권한승인은 후속 단계입니다.
+현재 앱은 개발 검증 버전이며 RTX5060 정식 품질 검증은 미완료입니다. Redis·인증·권한승인은 후속 단계입니다.
 
 ## 실행 환경
 
-- 현재 RTX 4090: 개발 검증 전용. 공식 품질/운영 지표로 사용하지 않습니다.
 - 최종 RTX 5060 8GB: 최종 비교 환경. 이 장비에서 GPU·모델·시간·메모리 재검증이 필요합니다.
 - 임베딩: Ollama `bge-m3`, `qwen3-embedding:0.6b` (각 1024차원).
 - 로컬 생성: `qwen3:4b`. 생성·평가·Mem0 제공자 설정을 검사하며 local_smoke에서 외부 추론으로 fallback하지 않습니다.
@@ -97,36 +96,9 @@ uv run pytest
 외부 추론 차단, 평가·Mem0 제공자 검증, 인용 위조 차단, RRF 중복·순위, 코드 토큰 보존을 검사합니다.
 실제 Cloud·모델 smoke test는 위 0~3 명령으로 별도 수행합니다.
 
-## 4. 4090 전체 연동 smoke
+## 4. 연동 점검
 
-`.env`에서 `FORCE_LOCAL_ONLY=true`, `SMOKE_RUN=true`, `ALLOW_EXTERNAL_LLM=false`, `PUBLISH_METRICS=false`를 유지합니다.
-생성·평가·Mem0 모델은 모두 `qwen3:4b` 로컬이며, 외부 추론으로 fallback하지 않습니다.
-Qdrant/Langfuse Cloud는 저장·추적용으로만 연결합니다.
-
-smoke 데이터는 `runtime/smoke/integration`와 `smoke_` 접두사의 새 Cloud 컬렉션으로 분리합니다.
-전체120문서의 앞2페이지를 고정 선택한 색인은 평가 정답으로 검색을 유도한 것이 아니며, 전체83,526청크 색인과 구분됩니다.
-
-```powershell
-uv run python -m scripts.02_build_indexes --corpus runtime/corpora/advanced-276cbbaddf-all --embedding bge --max-page 2
-uv run python -m scripts.02_build_indexes --corpus runtime/corpora/advanced-276cbbaddf-all --embedding qwen --max-page 2
-uv run python -m scripts.check_reranker
-uv run python -m scripts.04_run_comparison --set core10 --run-name smoke-core10-local-v2
-uv run python -m scripts.05_evaluate_quality --comparison runtime/smoke/integration/comparisons/smoke-core10-local-v2
-uv run python -m scripts.07_build_report --comparison runtime/smoke/integration/comparisons/smoke-core10-local-v2
-uv run python -m scripts.04_run_comparison --set final60 --run-name smoke-final60-local
-uv run python -m scripts.05_evaluate_quality --comparison runtime/smoke/integration/comparisons/smoke-final60-local
-uv run python -m scripts.07_build_report --comparison runtime/smoke/integration/comparisons/smoke-final60-local
-uv run python -m scripts.06_evaluate_security --run-name smoke-security-local
-```
-
-CLI에서 `--set`을 생략하면 `EVAL_SELECTION`·`EVAL_QUESTION_LIMIT`·`EVAL_QUESTION_IDS_FILE`을 사용합니다.
-예: `EVAL_SELECTION=core10`, `EVAL_QUESTION_LIMIT=10`, `EVAL_QUESTION_IDS_FILE=evaluation/selection/core10.json`.
-명시적 `--set final60`은 기본적으로60문항 전체를 실행하며, `--limit`는 smoke 부분 검증에만 사용합니다.
-성공한 비교 항목은 같은 설정으로 재개 시 건너뛰며, 실패한 항목만 재시도합니다. 설정이 달라지면 새 실행 이름을 사용하세요.
-
-자동 평가는 저장된 답변에 실제 RAGAS Faithfulness와 별도 로컬 Judge를 적용합니다. 두 평가는 서비스 생성 시간/토큰에 합산하지 않습니다.
-해당 없음·평가 불가·서비스 실패는 구분하며, CSV에 유효 분모를 함께 기록합니다. 로컬 Judge의 사실·노출 판정은 사람이 원문과 대조해야 합니다.
-보안은 두 질문 x 기본/방어 총4응답, 동일 최종 문맥 해시 검증. 공격 미노출·생성 실패를 방어 성공으로 세지 않습니다.
+RTX 5060의 청킹·색인·리랭커·API·채팅 점검은 [SETUP.md](SETUP.md)의 단계별 절차를 따릅니다. 기존 평가의 추가 실행이나 채점 재개는 별도 요청이 있을 때만 진행합니다.
 
 ## 5. 실제 채팅 서버
 
@@ -151,13 +123,12 @@ web→FastAPI는 entrypoint=web인 trace1개로 처리합니다. CLI와 API도 �
 
 ## 최종 RTX5060 실행
 
-4090 smoke 결과를 그대로 공식 결과로 쓰지 않습니다. RTX5060에서 모델 GPU 호환·전체120 PDF의 두 완전 색인·동결 설정을 재검증한 후 실행합니다.
+RTX5060에서 모델 GPU 호환·전체120 PDF의 두 완전 색인·동결 설정을 재검증한 후 실행합니다.
 `PUBLISH_METRICS=true`는 smoke가 꺼져 있고 실제5060이 확인될 때만 허용합니다. subset 색인으로 공식 실행하는 것도 차단합니다.
 이번 사용자 지시에 따라 기본값은 최종 답변까지 모두 로컬 추론입니다. 외부 API 키가 남아 있어도 로컬 모드에서 사용하지 않습니다.
 
 5060 8GB에서는 `LOW_VRAM_MODE=true`로 Ollama의 임베딩/생성 모델을 호출 후 내려 여러 모델의 GPU 동시 상주를 줄일 수 있습니다.
 `EMBEDDING_CONTEXT_TOKENS=2048`로 임베딩 문맥 할당을 제한하는 안도 검증하세요. 이 설정이 바뀌면 새 색인을 만들도록 버전이 구분됩니다.
-이는 대상 장비를 위한 실행 옵션이며, 4090에서 5060의 메모리 사용량을 검증했다는 뜻은 아닙니다.
 
 ### 로컬 추론 고정
 
