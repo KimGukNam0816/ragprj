@@ -30,9 +30,20 @@ env/
 coverage.xml
 htmlcov/
 
-# Supplied PDFs/evaluation datasets and generated reports/screenshots
-# Keep evaluation/ Python code and selection manifests for reproducibility.
-/data/
+# Publish only the approved Advanced PDFs and evaluation JSON files.
+/data/*
+!/data/advanced/
+/data/advanced/*
+!/data/advanced/Advanced_shipping_part*/
+/data/advanced/Advanced_shipping_part*/*
+!/data/advanced/Advanced_shipping_part*/documents/
+!/data/advanced/Advanced_shipping_part*/evaluation/
+/data/advanced/Advanced_shipping_part*/documents/*
+!/data/advanced/Advanced_shipping_part*/documents/*.pdf
+/data/advanced/Advanced_shipping_part*/evaluation/*
+!/data/advanced/Advanced_shipping_part*/evaluation/*.json
+
+# Generated reports and screenshots remain local.
 /output/
 
 # RAG vectors, Mem0 history, traces, checkpoints and local databases

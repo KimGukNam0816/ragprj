@@ -11,7 +11,7 @@
 ## 0. 준비물
 
 - NVIDIA GPU 드라이버, Git for Windows, Node.js **24 LTS**, Ollama, `uv`
-- 원본 `data/advanced/Advanced_shipping_part01of09` ~ `part09of09` 폴더
+- 저장소에 포함된 `data/advanced/Advanced_shipping_part01of09` ~ `part09of09` 원본 데이터
 - 본인 Qdrant Cloud URL/API 키, Langfuse Cloud 리전 URL/Public Key/Secret Key
 - Python은 아래 `uv python install 3.12`로 설치합니다. 별도 CUDA Toolkit은 필수가 아니며 PyTorch CUDA wheel과 호환 NVIDIA 드라이버가 필요합니다.
 
@@ -80,9 +80,11 @@ CUDA 설치 확인:
 
 기대값: `CUDA: True`와 RTX 5060. `uv.lock`과 `pyproject.toml`은 PyTorch CUDA 12.8 인덱스를 지정합니다. CPU wheel을 별도로 덮어 설치하지 마세요. 가상환경 activate나 PowerShell 실행 정책 변경은 필요 없습니다.
 
-## 3. 원본 데이터 별도 복사
+## 3. 원본 데이터 확인
 
-`data/`는 Git에서 제외되어 있습니다. 외장 디스크 등을 통해 아래 구조로 복사합니다. **part별 폴더는 합치거나 이름을 바꾸지 않습니다.**
+공개 가능한 Advanced 원본 PDF 120개와 평가 JSON은 저장소에 포함되어 clone 시 함께 내려옵니다. 아래 구조를 확인합니다. 기존 clone에 데이터가 없으면 작업 내용을 확인한 후 `git pull --ff-only origin main`으로 갱신합니다. **part별 폴더는 합치거나 이름을 바꾸지 않습니다.**
+
+`.gitignore`는 승인한 Advanced PDF·평가 JSON 경로만 허용합니다. `.env`, API 키, 개인정보, runtime·생성 결과는 커밋하지 않습니다. 평가 JSON이 저장소에 있어도 기존 평가를 자동으로 실행하거나 재개하지 않습니다.
 
 ```text
 C:\project\ragdev\data\advanced\
