@@ -62,3 +62,4 @@ jobs:
           PYTHON_RESULT: ${{ needs.python-syntax.result }}
           FRONTEND_RESULT: ${{ needs.frontend.result }}
         run: test "$PYTHON_RESULT" = success && test "$FRONTEND_RESULT" = success
+# PR verification: syntax failures must keep the aggregate check red.
