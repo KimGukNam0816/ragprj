@@ -1,0 +1,49 @@
+name: Enable team PR auto-merge
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+# This privileged workflow never checks out or executes PR code or artifacts.
+permissions:
+  actions: read
+  contents: write
+  pull-requests: write
+
+jobs:
+  enable:
+    if: github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const run = context.payload.workflow_run;
+            const pulls = await github.paginate(github.rest.pulls.list, {
+              owner, repo, state: 'open', base: 'main', per_page: 100
+            });
+            for (const pr of pulls) {
+              if (pr.draft || pr.head.sha !== run.head_sha ||
+                  pr.head.repo?.full_name !== `${owner}/${repo}`) continue;
+              const { data } = await github.rest.repos.getCollaboratorPermissionLevel({
+                owner, repo, username: pr.user.login
+              });
+              if (!['admin', 'maintain', 'write'].includes(data.permission)) continue;
+              const { data: current } = await github.rest.pulls.get({
+                owner, repo, pull_number: pr.number
+              });
+              if (current.state !== 'open' || current.draft || current.auto_merge ||
+                  current.head.sha !== run.head_sha || current.base.ref !== 'main') continue;
+              // Enable native auto-merge; never bypass branch rules or force a merge.
+              await github.graphql(`
+                mutation($id: ID!) {
+                  enablePullRequestAutoMerge(input: {
+                    pullRequestId: $id, mergeMethod: SQUASH
+                  }) { pullRequest { number } }
+                }
+              `, { id: current.node_id });
+              core.info(`Enabled auto-merge for PR #${pr.number}`);
+            }
