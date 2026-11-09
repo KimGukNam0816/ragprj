@@ -1,1 +1,0 @@
-def deliberately_invalid(
