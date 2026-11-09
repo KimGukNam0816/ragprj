@@ -1,6 +1,6 @@
 # 시스템 아키텍처
 
-Advanced 해운 PDF를 검색해 원문 출처와 함께 답변하는 개발 검증용 RAG 시스템입니다. 설치와 실행은 [SETUP.md](SETUP.md), 코드 변경과 협업은 [DEVELOPER.md](DEVELOPER.md)를 참조합니다.
+Advanced 해운 PDF를 검색해 원문 출처와 함께 답변하는 개발 검증용 RAG 시스템입니다. 설치·실행과 작업 브랜치 생성은 [SETUP.md](SETUP.md), 기능 개요는 [README.md](README.md)를 참조합니다.
 
 ## 설계 원칙과 현재 범위
 

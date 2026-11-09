@@ -40,19 +40,29 @@ nvidia-smi
 ## 1. Git에서 프로젝트 받기
 
 ```powershell
-New-Item -ItemType Directory -Force C:\project | Out-Null
-Set-Location C:\project
-git clone --branch main https://github.com/KimGukNam0816/ragprj.git ragdev
-Set-Location C:\project\ragdev
+New-Item -ItemType Directory -Force C:\project\ragdev | Out-Null
+cd C:\project\ragdev
+git clone --branch main https://github.com/KimGukNam0816/ragprj.git .
 git status --short --branch
 ```
+
+`C:\project\ragdev`는 사용할 프로젝트 폴더로 바꿔도 됩니다. 먼저 해당 폴더로 이동하고, clone 명령 끝의 `.`으로 **현재 폴더에** 받습니다. 새로 clone할 대상 폴더는 비어 있어야 합니다. 이미 clone한 폴더에서는 아래 갱신 절차를 사용하세요.
 
 이미 clone했다면 새 clone 대신 아래를 실행합니다. 로컬 수정이 있으면 먼저 확인하고, 강제 reset하지 마세요.
 
 ```powershell
-Set-Location C:\project\ragdev
+cd C:\project\ragdev
 git pull --ff-only origin main
 ```
+
+clone 또는 갱신 후, 코드·문서를 수정하기 전에 개인 작업 브랜치를 만듭니다. 아래 `feature/my-task`는 본인 작업에 맞는 고유한 이름으로 바꿉니다.
+
+```powershell
+git switch -c feature/my-task
+git status --short --branch
+```
+
+기존 개인 브랜치에서 작업 중이면 새 브랜치를 중복 생성하지 말고 현재 브랜치를 확인합니다. 변경은 개인 브랜치에 commit·push하고 main 대상 PR로 반영합니다. main 직접 push는 차단되며, 필수 CI 통과 후 권한 있는 팀원의 PR은 자동 병합됩니다.
 
 이후 Python 명령은 모두 **프로젝트 루트**에서 실행합니다. 저장소가 비공개면 Git Credential Manager 로그인 창에서 인증합니다.
 
