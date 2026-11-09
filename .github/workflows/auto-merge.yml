@@ -37,7 +37,19 @@ jobs:
               });
               if (current.state !== 'open' || current.draft || current.auto_merge ||
                   current.head.sha !== run.head_sha || current.base.ref !== 'main') continue;
-              // Enable native auto-merge; never bypass branch rules or force a merge.
+              // GitHub rejects auto-merge scheduling when a PR is already clean.
+              // The merge endpoint still enforces repository rules; sha prevents
+              // merging a new commit that was not covered by this successful CI.
+              if (current.mergeable_state === 'clean') {
+                const { data: merged } = await github.rest.pulls.merge({
+                  owner, repo, pull_number: current.number,
+                  sha: run.head_sha, merge_method: 'squash'
+                });
+                if (!merged.merged) throw new Error(merged.message);
+                core.info(`Merged verified PR #${pr.number}`);
+                continue;
+              }
+              // Otherwise schedule native auto-merge without bypassing rules.
               await github.graphql(`
                 mutation($id: ID!) {
                   enablePullRequestAutoMerge(input: {
