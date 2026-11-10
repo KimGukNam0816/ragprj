@@ -3,38 +3,26 @@ import platform
 import subprocess
 import time
 import uuid
-from functools import lru_cache
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
-from huggingface_hub import hf_hub_download
-from tokenizers import Tokenizer
 
 from .artifacts import digest, file_hash, write_json
 from .config import ROOT, Settings
-from .indexing import retrieve
+from .retrieval.service import retrieve
 from .observability import langfuse_client, observation
-from .prompts import RAG_PROMPT
+from .context_engineering.prompts import RAG_PROMPT
+from .context_engineering import prepare_context, validate_answer
+from .context_engineering.budget import generation_tokenizer
+from .observability import verify_trace
+from .observability.usage import usage_details, generation_metadata
 from .providers import Providers
 from .schemas import ModelAnswer, QueryRequest, QueryResponse, ServiceError
 
-# Capture the loaded implementation once. Later edits on disk must not masquerade
-# as code that an already-running worker actually executed.
-SOURCE_BYTES={name:(ROOT/'backend/app'/name).read_bytes() for name in ['config.py','prompts.py','providers.py','pipeline.py','ingestion.py','indexing.py','observability.py','schemas.py','memory.py','reranker.py','main.py']}
+# 실행 시작 시 소스 파일을 한 번 보존한다. 실행 중 디스크 변경과 기록을 구분한다.
+SOURCE_FILES = [p for p in (ROOT/'backend/app').rglob('*.py') if '__pycache__' not in p.parts]
+SOURCE_BYTES = {p.relative_to(ROOT/'backend/app').as_posix(): p.read_bytes() for p in sorted(SOURCE_FILES)}
 SOURCE_HASHES={name:__import__('hashlib').sha256(data).hexdigest() for name,data in SOURCE_BYTES.items()}
 LOCK_HASH=file_hash(ROOT/'uv.lock')
-
-
-def validate_answer(content: str, contexts):
-    text = content.strip()
-    if text.startswith('```') and text.endswith('```'):
-        text = text.split('\n', 1)[1].rsplit('```', 1)[0]
-    answer = ModelAnswer.model_validate_json(text)
-    valid = {(c['book_id'], c['page'], c['chunk_id']) for c in contexts}
-    if any((c.book_id, c.page, c.chunk_id) not in valid for c in answer.citations):
-        raise ValueError('Citation does not exist in actual model context')
-    if answer.status == 'answered' and not answer.citations:
-        raise ValueError('Answered result requires an actual source citation')
-    return answer
 
 
 def gpu_info():
@@ -43,20 +31,6 @@ def gpu_info():
         return result.stdout.strip() if result.returncode == 0 else 'unavailable'
     except (OSError, subprocess.TimeoutExpired):
         return 'unavailable'
-
-
-@lru_cache(maxsize=1)
-def generation_tokenizer(provider='ollama', model=''):
-    if provider == 'openai':
-        import tiktoken
-        try:
-            return tiktoken.encoding_for_model(model)
-        except KeyError:
-            # 미지원 모델은 근사값을 사용하고 실제 사용량은 API usage로 기록한다.
-            return tiktoken.get_encoding('o200k_base')
-    tokenizer = Tokenizer.from_file(hf_hub_download('Qwen/Qwen3-4B', 'tokenizer.json'))
-    tokenizer.no_truncation()
-    return tokenizer
 
 
 def run_query(s: Settings, request: QueryRequest, *, entrypoint='cli', run_id=None, question_id=None, fixed_context=None, defense_addition=None, deadline=None):
@@ -80,7 +54,9 @@ def run_query(s: Settings, request: QueryRequest, *, entrypoint='cli', run_id=No
     snapshot.mkdir(parents=True,exist_ok=True)
     for name,data in SOURCE_BYTES.items():
         target=snapshot/name
-        if not target.exists():target.write_bytes(data)
+        if not target.exists():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(data)
     config['embedding_profile'] = request.embedding_profile
     config['low_vram_mode']=s.low_vram_mode
     config['embedding_context_tokens']=s.embedding_context_tokens
@@ -126,24 +102,13 @@ def run_query(s: Settings, request: QueryRequest, *, entrypoint='cli', run_id=No
                 if s.publish_metrics:
                     raise ServiceError('formal_index_scope','Formal evaluation requires the full corpus index')
                 warning.append('Subset index: development smoke test only, not a full-corpus evaluation')
-            # Qwen3-4B uses its actual tokenizer to bound the final prompt in local mode.
-            tokenizer = generation_tokenizer(s.generation_llm_provider, s.openai_model)
-            while True:
-                # Only source identifiers and body belong in the model context, not index internals.
-                context = json.dumps([{k: c[k] for k in ['book_id', 'page', 'chunk_id', 'text']} for c in contexts], ensure_ascii=False)
-                messages = [{'role': 'system' if m.type == 'system' else 'user', 'content': m.content} for m in RAG_PROMPT.format_messages(question=request.question, memory=memory_text, context=context)]
-                if defense_addition:
-                    messages[0]['content'] += '\n' + defense_addition
-                tokenized = tokenizer.encode('\n'.join(m['content'] for m in messages))
-                approximate_tokens = len(tokenized.ids if s.generation_llm_provider == 'ollama' else tokenized) + 256
-                budget = min(s.context_max_tokens, s.local_context_tokens-s.llm_max_output_tokens) if s.generation_llm_provider == 'ollama' else s.context_max_tokens
-                if approximate_tokens <= budget:
-                    break
-                if not contexts:
-                    raise ServiceError('context_budget', 'Question/prompt exceeds token budget', 422)
-                contexts.pop()
-                warning.append('A lower-ranked chunk was dropped to satisfy the input budget')
-            record.update(final_context=contexts, context_hash=digest(contexts), actual_messages=messages, estimated_input_tokens=approximate_tokens)
+            prepared = prepare_context(s, request.question, contexts, memory_text=memory_text,
+                                       defense_addition=defense_addition)
+            contexts, messages = prepared.contexts, prepared.messages
+            warning.extend(prepared.warnings)
+            record.update(final_context=contexts, context_hash=prepared.context_hash,
+                          actual_messages=messages, estimated_input_tokens=prepared.estimated_input_tokens,
+                          dropped_chunk_ids=prepared.dropped_chunk_ids)
             if not contexts:
                 answer = ModelAnswer(answer='검색된 자료에서 답변에 필요한 근거를 확인하지 못했습니다.', status='abstained', reason='검색 결과 없음', citations=[])
                 generated = {'input_tokens': None, 'output_tokens': None, 'attempts': [], 'model': s.local_llm_model if s.generation_llm_provider == 'ollama' else s.openai_model}
@@ -153,9 +118,9 @@ def run_query(s: Settings, request: QueryRequest, *, entrypoint='cli', run_id=No
                     generated = provider.chat(messages, schema=ModelAnswer.model_json_schema())
                     record['generation'] = generated
                     if generation:
-                        generation.update(output=generated['content'], usage_details={k: v for k, v in {'input': generated['input_tokens'], 'output': generated['output_tokens']}.items() if v is not None},
-                                          metadata={'provider': s.generation_llm_provider, 'request_id': request_id,
-                                                    **{k:v for k,v in generated.items() if k != 'content'}})
+                        generation.update(output=generated['content'], usage_details=usage_details(generated),
+                                          metadata=generation_metadata(generated, provider=s.generation_llm_provider,
+                                                                       request_id=request_id))
                 with observation('output_validation', input=generated['content']) as validation:
                     answer = validate_answer(generated['content'], contexts)
                     if validation:
@@ -187,38 +152,3 @@ def run_query(s: Settings, request: QueryRequest, *, entrypoint='cli', run_id=No
             response.latency_ms=total_ms
             record['response']['latency_ms']=total_ms
         write_json(output / 'result.json', record)
-
-
-def verify_trace(s, trace_id, request_id, started_at=None):
-    """Read back exported trace, do not equate flush success with ingestion."""
-    if not trace_id:
-        return {'verified': False, 'reason': 'No trace ID'}
-    import httpx
-    end = datetime.now(timezone.utc)
-    start=datetime.fromisoformat(started_at) if started_at else end-timedelta(hours=1)
-    query_end=min(end,start+timedelta(hours=1))
-    params = {'traceId': trace_id, 'fields': 'core,basic,usage,io,metadata', 'fromStartTime': (start-timedelta(minutes=1)).isoformat(), 'toStartTime': query_end.isoformat(), 'limit': 100}
-    last_status = None
-    for attempt in range(5):
-        try:
-            r = httpx.get(s.langfuse_base_url.rstrip('/') + '/api/public/v2/observations', params=params, auth=(s.langfuse_public_key, s.langfuse_secret_key.get_secret_value()), timeout=15)
-            last_status = r.status_code
-            if r.is_success:
-                data = r.json()
-                rows = [x for x in data.get('data', []) if x.get('traceId') == trace_id]
-                names = {x.get('name') for x in rows}
-                generation = next((x for x in rows if x.get('name') == 'answer_generation'), {})
-                required = {'shipping_rag_query', 'query_embedding', 'dense_retrieval', 'answer_generation', 'output_validation'}
-                io_available = bool(generation.get('input') and generation.get('output'))
-                verified = request_id in json.dumps(rows) and required <= names and io_available
-                if verified:
-                    return {'verified': True, 'api': 'v2/observations', 'trace_id': trace_id, 'observation_count': len(rows), 'names': sorted(names), 'generation_io_available': io_available}
-            if r.status_code == 429:
-                delay = min(10, max(2, int(r.headers.get('retry-after', '2'))))
-                time.sleep(delay)
-                continue
-        except httpx.HTTPError:
-            pass
-        time.sleep(4)
-    return {'verified': False, 'trace_id': trace_id, 'http_status': last_status, 'reason': 'Required observations not readable yet; verify in Langfuse'}
-

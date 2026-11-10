@@ -12,14 +12,14 @@ from fastapi.responses import JSONResponse
 
 from .config import get_settings
 from .connections import check_connections
-from .memory import add_memory
+from .memory.service import add_memory
 from .pipeline import run_query
 from .schemas import MemoryRequest, QueryRequest, QueryResponse, ServiceError
 
 @asynccontextmanager
 async def lifespan(app):
     if s.reranker_warmup_on_startup:
-        from .reranker import get_reranker
+        from .retrieval.reranker import get_reranker
         def warmup():
             started = time.perf_counter()
             model = get_reranker(s)
