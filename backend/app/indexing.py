@@ -1,6 +1,8 @@
 import json
 import re
 import uuid
+import threading
+from functools import lru_cache
 from pathlib import Path
 
 import httpx
@@ -17,6 +19,25 @@ def keyword_tokens(text):
     # Codes stay intact; Korean character bigrams improve inflection matching without another service.
     result = re.findall(r'[a-z0-9]+(?:[-_:./][a-z0-9]+)*|[가-힣]+', text.lower())
     return result + [word[i:i+2] for word in result if re.fullmatch('[가-힣]+', word) for i in range(len(word)-1)]
+
+
+_bm25_lock = threading.Lock()
+
+
+@lru_cache(maxsize=2)
+def _cached_bm25(path, fingerprint, size, modified_ns):
+    # 활성 버전 또는 파일이 바뀌면 새 객체를 만들고, 같은 버전은 재사용한다.
+    chunks = list(read_jsonl(Path(path)))
+    if not chunks:
+        raise ServiceError('index_empty', 'BM25 chunks are empty')
+    return chunks, BM25Okapi([keyword_tokens(c['text']) for c in chunks])
+
+
+def load_bm25(path, fingerprint):
+    path = Path(path).resolve()
+    stat = path.stat()
+    with _bm25_lock:
+        return _cached_bm25(str(path), fingerprint, stat.st_size, stat.st_mtime_ns)
 
 
 def rrf(lists, constant=60):
@@ -159,14 +180,13 @@ def retrieve(s: Settings, provider: Providers, question: str, profile: str, mode
         store.close()
     if mode != 'naive':
         with observation('bm25_rrf', kind='retriever', input={'question': question, 'rrf_k': s.rrf_k}) as span:
-            chunks = list(read_jsonl(index_dir / 'chunks.jsonl'))
-            bm25 = BM25Okapi([keyword_tokens(c['text']) for c in chunks])
+            chunks, bm25 = load_bm25(index_dir / 'chunks.jsonl', state['fingerprint'])
             scores = bm25.get_scores(keyword_tokens(question))
             order = sorted(range(len(chunks)), key=lambda i: (-scores[i], chunks[i]['chunk_id']))[:s.bm25_candidate_k]
             keyword_rows = [{**chunks[i], 'score': float(scores[i])} for i in order if scores[i] > 0]
             rows = rrf([rows, keyword_rows], s.rrf_k)
             if span:
-                span.update(output=rows)
+                span.update(output=rows, metadata={'index_fingerprint': state['fingerprint'], 'bm25_cache': 'versioned_process_cache'})
     if mode == 'hybrid_rerank':
         from .reranker import get_reranker
         with observation('reranking', kind='retriever', input={'question': question, 'candidates': rows[:s.rerank_candidate_k]}) as span:

@@ -45,6 +45,7 @@ class Settings(BaseSettings):
     reranker_device: str = 'auto'
     reranker_batch_size: int = 2
     reranker_max_length: int = 2048
+    reranker_warmup_on_startup: bool = True
     langfuse_enabled: bool = True
     langfuse_base_url: str = ''
     langfuse_public_key: str = ''
@@ -86,9 +87,13 @@ class Settings(BaseSettings):
             raise ValueError('LLM provider must be ollama or openai')
         if self.execution_stage not in {'local_smoke', 'api_core10', 'api_final60'}:
             raise ValueError('Invalid execution stage')
-        # Project-wide requirement: no stage or environment flag enables remote inference.
-        if 'openai' in providers:
+        # 외부 호출은 사용자가 두 설정을 명시적으로 변경한 경우만 허용한다.
+        if 'openai' in providers and (self.force_local_only or not self.allow_external_llm):
             raise ValueError('External inference is disabled; no fallback is permitted')
+        if self.evaluation_llm_provider == 'openai' or self.mem0_llm_provider == 'openai':
+            raise ValueError('External evaluation and memory inference are disabled')
+        if self.generation_llm_provider == 'openai' and not self.llm_ready():
+            raise ValueError('OpenAI is disabled until base URL and API key are configured')
         if self.generation_llm_provider == 'ollama' and not self.local_llm_model:
             raise ValueError('Set LOCAL_LLM_MODEL before running')
         if self.publish_metrics:

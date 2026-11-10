@@ -38,26 +38,99 @@ class Providers:
         except (httpx.HTTPError, ValueError, KeyError) as e:
             raise ServiceError('embedding_error', 'Ollama embedding failed: ' + type(e).__name__) from None
 
+    def _chat_once(self, messages, schema):
+        if self.s.generation_llm_provider == 'openai':
+            headers = {'Authorization': 'Bearer ' + self.s.openai_api_key.get_secret_value()}
+            if self.s.openai_org_id:
+                headers['OpenAI-Organization'] = self.s.openai_org_id
+            if self.s.openai_project_id:
+                headers['OpenAI-Project'] = self.s.openai_project_id
+            payload = {'model': self.s.openai_model, 'messages': messages,
+                       'max_completion_tokens': self.s.llm_max_output_tokens, 'stream': False}
+            if schema:
+                import copy
+                schema = copy.deepcopy(schema)
+                def strict_objects(node):
+                    if isinstance(node, dict):
+                        node.pop('default', None)
+                        if node.get('type') == 'object':
+                            node['additionalProperties'] = False
+                            node['required'] = list(node.get('properties', {}))
+                        for value in node.values():
+                            strict_objects(value)
+                    elif isinstance(node, list):
+                        for value in node:
+                            strict_objects(value)
+                strict_objects(schema)
+                payload['response_format'] = {'type': 'json_schema', 'json_schema':
+                    {'name': 'rag_answer', 'strict': True, 'schema': schema}}
+            self.external_inference_attempts += 1
+            r = httpx.post(self.s.openai_base_url.rstrip('/') + '/chat/completions',
+                           headers=headers, json=payload, timeout=self.timeout(self.s.llm_timeout_seconds))
+            r.raise_for_status()
+            d = r.json()
+            choice = d['choices'][0]
+            usage = d.get('usage') or {}
+            return {'content': choice['message'].get('content') or '',
+                    'input_tokens': usage.get('prompt_tokens'), 'output_tokens': usage.get('completion_tokens'),
+                    'model': d.get('model', self.s.openai_model), 'finish_reason': choice.get('finish_reason'),
+                    'provider_request_id': r.headers.get('x-request-id'), 'response_id': d.get('id'),
+                    'http_status': r.status_code, 'usage': usage}
+        model = self.s.local_llm_model
+        r = httpx.post(self.s.ollama_base_url.rstrip('/') + '/api/chat', json={
+            'model': model, 'messages': messages, 'stream': False, 'think': False,
+            'format': schema or 'json', 'keep_alive': 0 if self.s.low_vram_mode else '5m',
+            'options': {'temperature': 0, 'num_ctx': self.s.local_context_tokens,
+                        'num_predict': self.s.llm_max_output_tokens}},
+            timeout=self.timeout(self.s.llm_timeout_seconds))
+        r.raise_for_status()
+        d = r.json()
+        timing = {k.replace('_duration', '_seconds'): d[k]/1e9 for k in
+                  ('load_duration', 'prompt_eval_duration', 'eval_duration', 'total_duration') if d.get(k) is not None}
+        if d.get('eval_duration') and d.get('eval_count') is not None:
+            timing['output_tokens_per_second'] = d['eval_count']/(d['eval_duration']/1e9)
+        return {'content': d['message']['content'], 'input_tokens': d.get('prompt_eval_count'),
+                'output_tokens': d.get('eval_count'), 'model': model, 'finish_reason': d.get('done_reason'),
+                'http_status': r.status_code, 'timing': timing}
+
     def chat(self, messages, schema=None):
+        from .observability import observation
         self.s.check_inference_policy()
-        attempts, result = [], None
+        attempts = []
+        model = self.s.openai_model if self.s.generation_llm_provider == 'openai' else self.s.local_llm_model
         for attempt in range(self.s.llm_max_retries + 1):
             started = time.perf_counter()
-            try:
-                if self.s.generation_llm_provider == 'ollama':
-                    model = self.s.local_llm_model
-                    r = httpx.post(self.s.ollama_base_url.rstrip('/') + '/api/chat', json={'model': model, 'messages': messages, 'stream': False, 'think': False, 'format': schema or 'json', 'keep_alive':0 if self.s.low_vram_mode else '5m', 'options': {'temperature': 0, 'num_ctx': self.s.local_context_tokens, 'num_predict': self.s.llm_max_output_tokens}}, timeout=self.timeout(self.s.llm_timeout_seconds))
-                    r.raise_for_status()
-                    d = r.json()
-                    result = {'content': d['message']['content'], 'input_tokens': d.get('prompt_eval_count'), 'output_tokens': d.get('eval_count'), 'model': model, 'finish_reason': d.get('done_reason')}
-                attempts.append({'attempt': attempt + 1, 'latency_ms': round((time.perf_counter() - started) * 1000), 'input_tokens': result['input_tokens'], 'output_tokens': result['output_tokens'], 'status': 'ok'})
-                result['attempts'] = attempts
-                return result
-            except httpx.HTTPError as exc:
-                code = getattr(getattr(exc, 'response', None), 'status_code', None)
-                attempts.append({'attempt': attempt + 1, 'status': 'error', 'http_status': code, 'input_tokens': None, 'output_tokens': None, 'latency_ms': round((time.perf_counter() - started) * 1000)})
-                if attempt >= self.s.llm_max_retries or (code is not None and code not in {429, 500, 502, 503, 504}):
-                    error = ServiceError('llm_error', 'Model request failed; see attempt metadata', 504 if isinstance(exc, httpx.TimeoutException) else 502)
-                    error.attempts = attempts
-                    raise error from None
+            # 시도별로 기록하여 재시도 시간과 사용량을 구분한다. 비밀 헤더는 기록하지 않는다.
+            with observation('llm_attempt', metadata={'attempt': attempt+1,
+                             'provider': self.s.generation_llm_provider, 'model': model}) as span:
+                try:
+                    self.timeout(self.s.llm_timeout_seconds)
+                    result = self._chat_once(messages, schema)
+                    info = {k: v for k, v in result.items() if k != 'content'}
+                    info.update(attempt=attempt+1, status='ok', latency_ms=round((time.perf_counter()-started)*1000))
+                    attempts.append(info)
+                    if span:
+                        span.update(metadata=info)
+                    result['attempts'] = attempts
+                    result['latency_ms'] = sum(a['latency_ms'] for a in attempts)
+                    return result
+                except (httpx.HTTPError, ServiceError) as exc:
+                    response = getattr(exc, 'response', None)
+                    code = response.status_code if response is not None else None
+                    info = {'attempt': attempt+1, 'status': 'error', 'http_status': code,
+                            'error_type': type(exc).__name__, 'error_code': getattr(exc, 'code', None),
+                            'provider_request_id': response.headers.get('x-request-id') if response is not None else None,
+                            'input_tokens': None, 'output_tokens': None,
+                            'latency_ms': round((time.perf_counter()-started)*1000)}
+                    attempts.append(info)
+                    if span:
+                        span.update(level='ERROR', status_message=info['error_type'], metadata=info)
+                    if isinstance(exc, ServiceError):
+                        exc.attempts = attempts
+                        raise
+                    if attempt >= self.s.llm_max_retries or (code is not None and code not in {429, 500, 502, 503, 504}):
+                        error = ServiceError('llm_error', 'Model request failed; see attempt metadata',
+                                             504 if isinstance(exc, httpx.TimeoutException) else 502)
+                        error.attempts = attempts
+                        raise error from None
         raise ServiceError('llm_error', 'No model response')
