@@ -1,7 +1,7 @@
 from contextlib import contextmanager
 from functools import lru_cache
 
-from .config import get_settings
+from ..config import get_settings
 
 
 @lru_cache
