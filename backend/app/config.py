@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     qdrant_docs_bge_collection: str = 'docs_bge_v1'
     qdrant_docs_qwen_collection: str = 'docs_qwen06_v1'
     qdrant_memory_collection: str = 'mem_users_bge_v1'
+    redis_enabled: bool = False  # true면 Mem0 기억을 Qdrant 대신 Redis에 저장
+    redis_vector_url: SecretStr = SecretStr('')  # 비밀번호가 들어갈 수 있어서 SecretStr(출력 시 가려짐)
+    redis_memory_index: str = 'idx:shipping:memory:v1'  # Mem0가 Redis에 만드는 인덱스 이름
     memory_enabled: bool = True
     mem0_embedding_model: str = 'bge-m3'
     mem0_embedding_dimensions: int = 1024

@@ -79,7 +79,8 @@ def check(stage, args):
         from backend.app.connections import check_connections
         from backend.app.providers import Providers
         results = asyncio.run(check_connections(s))
-        bad = {k: v['status'] for k, v in results.items() if k in ['ollama', 'llm', 'qdrant', 'langfuse'] and v['status'] != 'ok'}
+        # Redis는 REDIS_ENABLED=true일 때만 필수 연결로 검사
+        bad = {k: v['status'] for k, v in results.items() if k in ['ollama', 'llm', 'qdrant', 'langfuse'] + (['redis'] if s.redis_enabled else []) and v['status'] != 'ok'}
         require(not bad, 'Connection failed: ' + json.dumps(bad))
         provider = Providers(s)
         dims = {p: len(provider.embed(['해운 연결 확인'], p)[0]) for p in ['bge', 'qwen']}
