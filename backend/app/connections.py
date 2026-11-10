@@ -4,7 +4,7 @@ import importlib.util
 import httpx
 
 from .config import Settings
-from .redis_client import check_redis
+from .storage import check_redis
 
 
 async def check_connections(s: Settings) -> dict:

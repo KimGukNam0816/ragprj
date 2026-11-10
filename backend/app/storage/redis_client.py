@@ -1,7 +1,7 @@
 """Redis 접근 코드는 모두 이 파일에 둔다. redis 패키지는 memory 묶음에만 있어서 함수 안에서 import한다."""
 from functools import lru_cache
 
-from .config import Settings
+from ..config import Settings
 
 
 @lru_cache(maxsize=4)  # 같은 주소·타임아웃이면 연결 객체를 새로 만들지 않고 재사용

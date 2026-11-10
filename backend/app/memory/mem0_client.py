@@ -3,9 +3,9 @@ from functools import lru_cache
 from typing import Literal
 from pydantic import BaseModel, Field
 
-from .config import get_settings
-from .observability import observation
-from .redis_client import mem0_vector_store
+from ..config import get_settings
+from ..observability import observation
+from ..storage import mem0_vector_store
 
 
 @lru_cache(maxsize=1)
@@ -21,7 +21,7 @@ def memory_client():
     memory=Memory.from_config(config)
     # Use the same guarded local provider as generation/evaluation. The Mem0 Ollama
     # adapter does not forward think=False on this version, so bridge it explicitly.
-    from .providers import Providers
+    from ..providers import Providers
     class Facts(BaseModel):
         facts:list[str]=Field(max_length=5)
     class Action(BaseModel):
@@ -48,16 +48,3 @@ def memory_client():
     return memory
 
 
-def search_memory(question,user_id):
-    s=get_settings()
-    with observation('memory_search',input={'question':question,'user_id':user_id}) as span:
-        results=memory_client().search(question,user_id=user_id,limit=s.memory_top_k)
-        if span:span.update(output=results)
-        return results
-
-
-def add_memory(text,user_id):
-    with observation('memory_add',input={'user_id':user_id,'explicit_preference':text}) as span:
-        result=memory_client().add([{'role':'user','content':text}],user_id=user_id,metadata={'scope':'smoke','explicit':True})
-        if span:span.update(output=result)
-        return result
