@@ -132,4 +132,4 @@ RTX5060에서 모델 GPU 호환·전체120 PDF의 두 완전 색인·동결 설�
 
 ### 로컬 추론 고정
 
-생성·최종 답변·RAGAS·Judge·Mem0 추론은 모든 단계에서 Ollama 로컬 모델만 사용합니다. 기존 API 설정이 남아 있어도 외부 추론은 실행하지 않습니다. `ALLOW_EXTERNAL_LLM=true`, `FORCE_LOCAL_ONLY=false`로 바꿔도 외부 제공자는 정책 검사에서 차단되며 외부 생성 요청 코드도 제거했습니다. Qdrant Cloud와 Langfuse Cloud는 저장·관측 용도로 유지합니다.
+기본 추론은 Ollama 로컬 모델입니다. 답변 생성만 명시적 설정으로 OpenAI API를 선택할 수 있습니다. 평가·Mem0의 외부 추론과 자동 fallback은 허용하지 않습니다. Qdrant Cloud와 Langfuse Cloud는 저장·관측 용도로 유지합니다. 시작 시 reranker 워밍업, 버전별 BM25 캐시와 시도별 LLM 관측 설정은 [성능 및 로그 안내](docs/PERFORMANCE.md)를 참고하세요.
