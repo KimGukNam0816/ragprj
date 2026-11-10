@@ -19,7 +19,7 @@ from .schemas import ModelAnswer, QueryRequest, QueryResponse, ServiceError
 
 # Capture the loaded implementation once. Later edits on disk must not masquerade
 # as code that an already-running worker actually executed.
-SOURCE_BYTES={name:(ROOT/'backend/app'/name).read_bytes() for name in ['config.py','prompts.py','providers.py','pipeline.py','ingestion.py','indexing.py','observability.py','schemas.py','memory.py']}
+SOURCE_BYTES={name:(ROOT/'backend/app'/name).read_bytes() for name in ['config.py','prompts.py','providers.py','pipeline.py','ingestion.py','indexing.py','observability.py','schemas.py','memory.py','reranker.py','main.py']}
 SOURCE_HASHES={name:__import__('hashlib').sha256(data).hexdigest() for name,data in SOURCE_BYTES.items()}
 LOCK_HASH=file_hash(ROOT/'uv.lock')
 
@@ -46,7 +46,14 @@ def gpu_info():
 
 
 @lru_cache(maxsize=1)
-def generation_tokenizer():
+def generation_tokenizer(provider='ollama', model=''):
+    if provider == 'openai':
+        import tiktoken
+        try:
+            return tiktoken.encoding_for_model(model)
+        except KeyError:
+            # 미지원 모델은 근사값을 사용하고 실제 사용량은 API usage로 기록한다.
+            return tiktoken.get_encoding('o200k_base')
     tokenizer = Tokenizer.from_file(hf_hub_download('Qwen/Qwen3-4B', 'tokenizer.json'))
     tokenizer.no_truncation()
     return tokenizer
@@ -120,15 +127,17 @@ def run_query(s: Settings, request: QueryRequest, *, entrypoint='cli', run_id=No
                     raise ServiceError('formal_index_scope','Formal evaluation requires the full corpus index')
                 warning.append('Subset index: development smoke test only, not a full-corpus evaluation')
             # Qwen3-4B uses its actual tokenizer to bound the final prompt in local mode.
-            tokenizer = generation_tokenizer()
+            tokenizer = generation_tokenizer(s.generation_llm_provider, s.openai_model)
             while True:
                 # Only source identifiers and body belong in the model context, not index internals.
                 context = json.dumps([{k: c[k] for k in ['book_id', 'page', 'chunk_id', 'text']} for c in contexts], ensure_ascii=False)
                 messages = [{'role': 'system' if m.type == 'system' else 'user', 'content': m.content} for m in RAG_PROMPT.format_messages(question=request.question, memory=memory_text, context=context)]
                 if defense_addition:
                     messages[0]['content'] += '\n' + defense_addition
-                approximate_tokens = len(tokenizer.encode('\n'.join(m['content'] for m in messages)).ids) + 256
-                if approximate_tokens <= min(s.context_max_tokens, s.local_context_tokens-s.llm_max_output_tokens):
+                tokenized = tokenizer.encode('\n'.join(m['content'] for m in messages))
+                approximate_tokens = len(tokenized.ids if s.generation_llm_provider == 'ollama' else tokenized) + 256
+                budget = min(s.context_max_tokens, s.local_context_tokens-s.llm_max_output_tokens) if s.generation_llm_provider == 'ollama' else s.context_max_tokens
+                if approximate_tokens <= budget:
                     break
                 if not contexts:
                     raise ServiceError('context_budget', 'Question/prompt exceeds token budget', 422)
@@ -144,7 +153,9 @@ def run_query(s: Settings, request: QueryRequest, *, entrypoint='cli', run_id=No
                     generated = provider.chat(messages, schema=ModelAnswer.model_json_schema())
                     record['generation'] = generated
                     if generation:
-                        generation.update(output=generated['content'], usage_details={k: v for k, v in {'input': generated['input_tokens'], 'output': generated['output_tokens']}.items() if v is not None})
+                        generation.update(output=generated['content'], usage_details={k: v for k, v in {'input': generated['input_tokens'], 'output': generated['output_tokens']}.items() if v is not None},
+                                          metadata={'provider': s.generation_llm_provider, 'request_id': request_id,
+                                                    **{k:v for k,v in generated.items() if k != 'content'}})
                 with observation('output_validation', input=generated['content']) as validation:
                     answer = validate_answer(generated['content'], contexts)
                     if validation:

@@ -1,6 +1,9 @@
 import json
 import threading
 import time
+import logging
+from contextlib import asynccontextmanager
+from starlette.concurrency import run_in_threadpool
 from pathlib import Path
 
 from fastapi import FastAPI, Header, HTTPException
@@ -13,7 +16,23 @@ from .memory import add_memory
 from .pipeline import run_query
 from .schemas import MemoryRequest, QueryRequest, QueryResponse, ServiceError
 
-app=FastAPI(title='해운 문서 도우미',version='0.2.0',description='RTX4090 integration smoke. All inference stays local. No formal evaluation metrics.')
+@asynccontextmanager
+async def lifespan(app):
+    if s.reranker_warmup_on_startup:
+        from .reranker import get_reranker
+        def warmup():
+            started = time.perf_counter()
+            model = get_reranker(s)
+            model.score('보관료 면제 조건은 무엇인가요?', ['보관료 면제에는 별도 승인이 필요합니다.'])
+            return {'model': s.reranker_model, 'device': model.device,
+                    'duration_ms': round((time.perf_counter()-started)*1000)}
+        # 준비 실패 시 서버도 시작하지 않아 첫 사용자 요청에 실패를 미루지 않는다.
+        app.state.reranker_warmup = await run_in_threadpool(warmup)
+        logging.getLogger(__name__).info('Reranker ready: %s', app.state.reranker_warmup)
+    yield
+
+
+app=FastAPI(title='해운 문서 도우미',version='0.2.0',lifespan=lifespan)
 s=get_settings()
 app.add_middleware(CORSMiddleware,allow_origins=[s.frontend_origin,'http://localhost:3000'],allow_methods=['GET','POST'],allow_headers=['Content-Type','X-Entrypoint'])
 gpu_lock=threading.Lock()
