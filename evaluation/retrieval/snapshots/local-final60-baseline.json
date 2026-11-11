@@ -1,0 +1,446 @@
+{
+  "run": {
+    "run_name": "local-final60-baseline",
+    "scope": "smoke",
+    "metric_eligible": false,
+    "selection": "final60",
+    "question_count": 60,
+    "provider": "ollama",
+    "model": "qwen3:4b",
+    "settings": {
+      "top_k": 4,
+      "dense_k": 20,
+      "bm25_k": 20,
+      "rrf": 60,
+      "rerank_k": 20,
+      "max_output": 2048
+    },
+    "answer_scores_available": true,
+    "scoring": {
+      "evaluation_model": "qwen3:4b-instruct-2507-q4_K_M",
+      "judge_prompt": "evaluation/quality.py 기존 프롬프트 (수정 없음)",
+      "context_tokens_for_scoring": 16384,
+      "note": "qwen3:4b(겸용, 생각 모드 끔) 채점은 0점·'...'만 출력해 scores_invalid_qwen3-4b_judge로 보관. 대표 10건 시험에서 참고 답변 착각 오판 2/6 확인됨 → 대표 사례 사람 대조 필요",
+      "started": "2026-11-11"
+    },
+    "source": "snapshot"
+  },
+  "configs": [
+    {
+      "profile": "bge",
+      "mode": "naive",
+      "requests": 60,
+      "errors": 0,
+      "error_rate_pct": 0.0,
+      "latency_mean_ms": 9721.05,
+      "latency_ok_n": 60,
+      "input_tokens_sum": 136733,
+      "input_tokens_known_requests": 60,
+      "output_tokens_sum": 37968,
+      "output_tokens_known_requests": 60,
+      "hit_at_4": {
+        "mean": 0.6379310344827587,
+        "n": 58,
+        "na": 2,
+        "unscorable": 0
+      },
+      "recall_at_4": {
+        "mean": 0.3261494252873563,
+        "n": 58,
+        "na": 2,
+        "unscorable": 0
+      },
+      "faithfulness": {
+        "mean": 0.3525949975949976,
+        "n": 60,
+        "na": 0,
+        "unscorable": 0
+      },
+      "judge_facts": {
+        "mean": 0.5333333333333333,
+        "n": 60,
+        "na": 0,
+        "unscorable": 0
+      },
+      "judge_conditions": {
+        "mean": 0.6333333333333333,
+        "n": 60,
+        "na": 0,
+        "unscorable": 0
+      },
+      "judge_evidence": {
+        "mean": 0.6,
+        "n": 60,
+        "na": 0,
+        "unscorable": 0
+      },
+      "judge_decision": {
+        "mean": 0.5666666666666667,
+        "n": 60,
+        "na": 0,
+        "unscorable": 0
+      }
+    },
+    {
+      "profile": "bge",
+      "mode": "hybrid",
+      "requests": 60,
+      "errors": 0,
+      "error_rate_pct": 0.0,
+      "latency_mean_ms": 9367.283333333333,
+      "latency_ok_n": 60,
+      "input_tokens_sum": 146185,
+      "input_tokens_known_requests": 60,
+      "output_tokens_sum": 31178,
+      "output_tokens_known_requests": 60,
+      "hit_at_4": {
+        "mean": 0.9827586206896551,
+        "n": 58,
+        "na": 2,
+        "unscorable": 0
+      },
+      "recall_at_4": {
+        "mean": 0.5445402298850575,
+        "n": 58,
+        "na": 2,
+        "unscorable": 0
+      },
+      "faithfulness": {
+        "mean": 0.5266714766714766,
+        "n": 60,
+        "na": 0,
+        "unscorable": 0
+      },
+      "judge_facts": {
+        "mean": 0.7666666666666667,
+        "n": 60,
+        "na": 0,
+        "unscorable": 0
+      },
+      "judge_conditions": {
+        "mean": 0.9333333333333333,
+        "n": 60,
+        "na": 0,
+        "unscorable": 0
+      },
+      "judge_evidence": {
+        "mean": 0.8833333333333333,
+        "n": 60,
+        "na": 0,
+        "unscorable": 0
+      },
+      "judge_decision": {
+        "mean": 0.8166666666666667,
+        "n": 60,
+        "na": 0,
+        "unscorable": 0
+      }
+    },
+    {
+      "profile": "bge",
+      "mode": "hybrid_rerank",
+      "requests": 60,
+      "errors": 0,
+      "error_rate_pct": 0.0,
+      "latency_mean_ms": 13380.383333333333,
+      "latency_ok_n": 60,
+      "input_tokens_sum": 148517,
+      "input_tokens_known_requests": 60,
+      "output_tokens_sum": 29841,
+      "output_tokens_known_requests": 60,
+      "hit_at_4": {
+        "mean": 0.9827586206896551,
+        "n": 58,
+        "na": 2,
+        "unscorable": 0
+      },
+      "recall_at_4": {
+        "mean": 0.603448275862069,
+        "n": 58,
+        "na": 2,
+        "unscorable": 0
+      },
+      "faithfulness": {
+        "mean": 0.681344696969697,
+        "n": 60,
+        "na": 0,
+        "unscorable": 0
+      },
+      "judge_facts": {
+        "mean": 0.8813559322033898,
+        "n": 59,
+        "na": 0,
+        "unscorable": 1
+      },
+      "judge_conditions": {
+        "mean": 0.9152542372881356,
+        "n": 59,
+        "na": 0,
+        "unscorable": 1
+      },
+      "judge_evidence": {
+        "mean": 0.9322033898305084,
+        "n": 59,
+        "na": 0,
+        "unscorable": 1
+      },
+      "judge_decision": {
+        "mean": 0.847457627118644,
+        "n": 59,
+        "na": 0,
+        "unscorable": 1
+      }
+    },
+    {
+      "profile": "qwen",
+      "mode": "naive",
+      "requests": 60,
+      "errors": 0,
+      "error_rate_pct": 0.0,
+      "latency_mean_ms": 12184.8,
+      "latency_ok_n": 60,
+      "input_tokens_sum": 148772,
+      "input_tokens_known_requests": 60,
+      "output_tokens_sum": 37326,
+      "output_tokens_known_requests": 60,
+      "hit_at_4": {
+        "mean": 0.5172413793103449,
+        "n": 58,
+        "na": 2,
+        "unscorable": 0
+      },
+      "recall_at_4": {
+        "mean": 0.3448275862068966,
+        "n": 58,
+        "na": 2,
+        "unscorable": 0
+      },
+      "faithfulness": {
+        "mean": 0.3585467772967773,
+        "n": 60,
+        "na": 0,
+        "unscorable": 0
+      },
+      "judge_facts": {
+        "mean": 0.4745762711864407,
+        "n": 59,
+        "na": 0,
+        "unscorable": 1
+      },
+      "judge_conditions": {
+        "mean": 0.5932203389830508,
+        "n": 59,
+        "na": 0,
+        "unscorable": 1
+      },
+      "judge_evidence": {
+        "mean": 0.4915254237288136,
+        "n": 59,
+        "na": 0,
+        "unscorable": 1
+      },
+      "judge_decision": {
+        "mean": 0.4745762711864407,
+        "n": 59,
+        "na": 0,
+        "unscorable": 1
+      }
+    },
+    {
+      "profile": "qwen",
+      "mode": "hybrid",
+      "requests": 60,
+      "errors": 1,
+      "error_rate_pct": 1.6666666666666667,
+      "latency_mean_ms": 12581.728813559323,
+      "latency_ok_n": 59,
+      "input_tokens_sum": 150683,
+      "input_tokens_known_requests": 59,
+      "output_tokens_sum": 31940,
+      "output_tokens_known_requests": 59,
+      "hit_at_4": {
+        "mean": 0.9473684210526315,
+        "n": 57,
+        "na": 2,
+        "unscorable": 1
+      },
+      "recall_at_4": {
+        "mean": 0.5380116959064327,
+        "n": 57,
+        "na": 2,
+        "unscorable": 1
+      },
+      "faithfulness": {
+        "mean": 0.5366290018832391,
+        "n": 59,
+        "na": 0,
+        "unscorable": 1
+      },
+      "judge_facts": {
+        "mean": 0.7966101694915254,
+        "n": 59,
+        "na": 0,
+        "unscorable": 1
+      },
+      "judge_conditions": {
+        "mean": 0.847457627118644,
+        "n": 59,
+        "na": 0,
+        "unscorable": 1
+      },
+      "judge_evidence": {
+        "mean": 0.8305084745762712,
+        "n": 59,
+        "na": 0,
+        "unscorable": 1
+      },
+      "judge_decision": {
+        "mean": 0.75,
+        "n": 60,
+        "na": 0,
+        "unscorable": 0
+      }
+    },
+    {
+      "profile": "qwen",
+      "mode": "hybrid_rerank",
+      "requests": 60,
+      "errors": 0,
+      "error_rate_pct": 0.0,
+      "latency_mean_ms": 13778.033333333333,
+      "latency_ok_n": 60,
+      "input_tokens_sum": 152930,
+      "input_tokens_known_requests": 60,
+      "output_tokens_sum": 30650,
+      "output_tokens_known_requests": 60,
+      "hit_at_4": {
+        "mean": 0.9655172413793104,
+        "n": 58,
+        "na": 2,
+        "unscorable": 0
+      },
+      "recall_at_4": {
+        "mean": 0.6091954022988506,
+        "n": 58,
+        "na": 2,
+        "unscorable": 0
+      },
+      "faithfulness": {
+        "mean": 0.6304652033465593,
+        "n": 59,
+        "na": 0,
+        "unscorable": 1
+      },
+      "judge_facts": {
+        "mean": 0.8166666666666667,
+        "n": 60,
+        "na": 0,
+        "unscorable": 0
+      },
+      "judge_conditions": {
+        "mean": 0.9166666666666666,
+        "n": 60,
+        "na": 0,
+        "unscorable": 0
+      },
+      "judge_evidence": {
+        "mean": 0.9,
+        "n": 60,
+        "na": 0,
+        "unscorable": 0
+      },
+      "judge_decision": {
+        "mean": 0.8666666666666667,
+        "n": 60,
+        "na": 0,
+        "unscorable": 0
+      }
+    }
+  ],
+  "insights": {
+    "bge": [
+      {
+        "metric": "recall_at_4",
+        "tone": "warn",
+        "title": "Recall@4 0.60 · Hit@4 0.98",
+        "text": "정답 문서를 하나는 찾지만 전부는 못 가져옵니다. 정답 문서 1개 문항은 1.00, 4개 이상 문항은 0.48. 같은 건이 여러 기록철에 흩어진 문항에서 4자리가 부족한 것이 주원인입니다."
+      },
+      {
+        "metric": "hybrid",
+        "tone": "good",
+        "title": "Hybrid Recall +0.22",
+        "text": "예약번호·장비코드 같은 정확한 단어를 BM25가 잡아, 의미 검색이 놓친 문서를 보충했습니다."
+      },
+      {
+        "metric": "rerank",
+        "tone": "good",
+        "title": "리랭커 Recall +0.06",
+        "text": "Hybrid 후보 20개 안의 정답 문서를 상위 4개로 끌어올렸습니다. 대신 평균 응답이 4.0초 늘었습니다."
+      },
+      {
+        "metric": "judge_decision",
+        "tone": "info",
+        "title": "Judge 가장 낮은 항목: 판단 0.85",
+        "text": "답변·추가 확인·보류 판단이 기대 행동과 다릅니다."
+      },
+      {
+        "metric": "tokens",
+        "tone": "info",
+        "title": "입력 토큰 +9% (Reranker vs Naive)",
+        "text": "최종 청크 수(k=4)는 같지만 고른 청크의 길이가 달라 문맥 크기가 달라졌습니다."
+      }
+    ],
+    "qwen": [
+      {
+        "metric": "recall_at_4",
+        "tone": "warn",
+        "title": "Recall@4 0.61 · Hit@4 0.97",
+        "text": "정답 문서를 하나는 찾지만 전부는 못 가져옵니다. 정답 문서 1개 문항은 1.00, 4개 이상 문항은 0.50. 같은 건이 여러 기록철에 흩어진 문항에서 4자리가 부족한 것이 주원인입니다."
+      },
+      {
+        "metric": "hybrid",
+        "tone": "good",
+        "title": "Hybrid Recall +0.19",
+        "text": "예약번호·장비코드 같은 정확한 단어를 BM25가 잡아, 의미 검색이 놓친 문서를 보충했습니다."
+      },
+      {
+        "metric": "rerank",
+        "tone": "good",
+        "title": "리랭커 Recall +0.07",
+        "text": "Hybrid 후보 20개 안의 정답 문서를 상위 4개로 끌어올렸습니다. 대신 평균 응답이 1.2초 늘었습니다."
+      },
+      {
+        "metric": "judge_facts",
+        "tone": "info",
+        "title": "Judge 가장 낮은 항목: 사실 0.82",
+        "text": "필요한 사실·수치를 빠뜨리거나 틀립니다. 근거 문서가 문맥에 다 들어오지 않은 경우가 많습니다."
+      },
+      {
+        "metric": "error_rate",
+        "tone": "warn",
+        "title": "hybrid 오류 1건 (1.7%)",
+        "text": "재시도 후에도 시스템 오류로 끝난 요청입니다. 이 요청의 검색·답변 지표는 평가 불가로 빠지고 평균 응답 시간에서도 제외됩니다."
+      }
+    ]
+  },
+  "selection": {
+    "bge": {
+      "profile": "bge",
+      "mode": "hybrid_rerank",
+      "text": "bge / hybrid_rerank가 가장 높은 답변 품질(Judge 평균 0.89)과 Recall@4(0.60)를 보였습니다."
+    },
+    "qwen": {
+      "profile": "qwen",
+      "mode": "hybrid_rerank",
+      "text": "qwen / hybrid_rerank가 가장 높은 답변 품질(Judge 평균 0.88)과 Recall@4(0.61)를 보였습니다."
+    }
+  },
+  "cost": {
+    "status": "unavailable",
+    "reason": "로컬 추론(Ollama)이라 모델 호출 단가가 없습니다. 발제 기준에 따라 비용은 \"확인 불가\"로 두고 토큰만 비교합니다."
+  },
+  "metric_definitions": {
+    "hit_at_4": "발제 필수. evidence_groups의 book_id(중복 제거) 중 하나라도 최종 문맥 4개에 있으면 1",
+    "recall_at_4": "발제 필수. 찾은 참고 근거 문서 수 / 전체 참고 근거 문서 수 (문서 단위)"
+  }
+}

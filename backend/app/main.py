@@ -37,6 +37,10 @@ s=get_settings()
 app.add_middleware(CORSMiddleware,allow_origins=[s.frontend_origin,'http://localhost:3000'],allow_methods=['GET','POST'],allow_headers=['Content-Type','X-Entrypoint'])
 gpu_lock=threading.Lock()
 
+# 평가 화면용 읽기 전용 API (구현: evaluation/retrieval/api.py, 권오륜)
+from evaluation.retrieval.api import router as evaluation_router
+app.include_router(evaluation_router)
+
 
 @app.exception_handler(ServiceError)
 async def service_error(request,exc):
