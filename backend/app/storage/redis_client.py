@@ -2,7 +2,7 @@
 
 - 연결: get_redis, check_redis
 - Mem0 설정: build_mem0_vector_store
-- 사용자 기억 저장소: RedisMemoryStore (메서드는 qdrant.py의 QdrantMemoryStore와 같다, 정의서 docs/storage.md 3절)
+- 사용자 기억 저장소: RedisMemoryStore (공개 메서드는 schema.py의 MemoryStore, 정의서 docs/storage.md 3절)
 
 redis·redisvl 패키지는 memory 묶음(uv sync --extra memory)에만 있어서, 패키지 없이도 서버가 뜨도록 함수 안에서 import한다.
 """
@@ -18,14 +18,9 @@ from .schema import (
     HNSW_EF_CONSTRUCTION,
     HNSW_M,
     VECTOR_SIZE,
+    MemoryStore,
     build_memory_id,
-    build_update_fields,
-    check_record,
     check_user_id,
-    check_vector,
-    parse_kinds,
-    parse_top_k,
-    to_epoch_seconds,
     to_iso_time,
 )
 
@@ -57,18 +52,18 @@ redis.call('HSET', KEYS[1], unpack(ARGV, 3))
 redis.call('ZADD', KEYS[2], 'NX', ARGV[1], ARGV[2])
 return is_created
 """
-# 키가 있을 때만 고친다. 확인과 수정이 한 번에 일어나서, 그 사이 지워진 키가 반쪽짜리로 되살아나지 않는다.
-UPDATE_IF_EXISTS_SCRIPT = """
-if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end
-redis.call('HSET', KEYS[1], unpack(ARGV))
+# 이 사용자의 기억일 때만 고친다(없는 키면 HGET이 false). 확인과 수정이 한 번에 일어나서
+# 그 사이 지워진 키가 반쪽짜리로 되살아나지 않는다.
+UPDATE_IF_OWNED_SCRIPT = """
+if redis.call('HGET', KEYS[1], 'user_id') ~= ARGV[1] then return 0 end
+redis.call('HSET', KEYS[1], unpack(ARGV, 2))
 return 1
 """
-# 기억 HASH와 사용 시각 Sorted Set의 항목을 같이 지운다(사용자 id는 HASH에서 읽음).
-DELETE_SCRIPT = """
-local user_id = redis.call('HGET', KEYS[1], 'user_id')
-if not user_id then return 0 end
+# 이 사용자의 기억일 때만 기억 HASH와 사용 시각 Sorted Set의 항목을 같이 지운다.
+DELETE_IF_OWNED_SCRIPT = """
+if redis.call('HGET', KEYS[1], 'user_id') ~= ARGV[1] then return 0 end
 redis.call('DEL', KEYS[1])
-redis.call('ZREM', ARGV[1] .. user_id, ARGV[2])
+redis.call('ZREM', KEYS[2], ARGV[2])
 return 1
 """
 
@@ -118,11 +113,11 @@ def build_mem0_vector_store(settings: Settings) -> dict:
     }
 
 
-class RedisMemoryStore:
-    """사용자 기억 저장소(Redis).
+class RedisMemoryStore(MemoryStore):
+    """사용자 기억 저장소(Redis). 공개 메서드와 값 검사는 MemoryStore에 있다.
 
     - 기억 1건 = HASH 1개(본문·종류·벡터처럼 거의 안 바뀌는 칸) → 인덱스로 검색
-    - 사용 시각 = 사용자별 Sorted Set(질문마다 바뀜) → touch해도 벡터를 다시 색인하지 않음
+    - 사용 시각 = 사용자별 Sorted Set(질문마다 바뀜) → 바꿔도 벡터를 다시 색인하지 않음
     연결·스크립트·이름은 만들 때 한 번 준비하고 메서드에서 재사용한다.
     """
 
@@ -135,6 +130,9 @@ class RedisMemoryStore:
         hnsw_m: int = HNSW_M,
         hnsw_ef_construction: int = HNSW_EF_CONSTRUCTION,
     ):
+        import redis
+
+        self.db_error_types = (redis.RedisError,)  # 연결 실패·명령 오류의 공통 부모
         self.client = client
         self.index_name = index_name
         self.key_prefix = key_prefix
@@ -144,33 +142,24 @@ class RedisMemoryStore:
         self._save_script = client.register_script(
             SAVE_SCRIPT
         )  # 한 번만 준비하고 이후 EVALSHA로 실행
-        self._update_script = client.register_script(UPDATE_IF_EXISTS_SCRIPT)
-        self._delete_script = client.register_script(DELETE_SCRIPT)
+        self._update_script = client.register_script(UPDATE_IF_OWNED_SCRIPT)
+        self._delete_script = client.register_script(DELETE_IF_OWNED_SCRIPT)
 
     @classmethod
     def from_settings(cls, settings: Settings) -> "RedisMemoryStore":
+        """설정의 Redis 주소로 저장소를 만든다."""
         return cls(get_redis(settings))
 
-    def ensure(self) -> bool:
-        """인덱스가 없으면 만들고 True, 이미 있으면 건드리지 않고 False(저장된 기억은 그대로)."""
+    def _create_index_if_missing(self) -> bool:
         if self._index_exists():
             return False
         return self._create_index()
 
-    def save_memory(
-        self,
-        user_id,
-        memory,
-        vector,
-        memory_type,
-        category=None,
-        source="auto_extracted",
-    ) -> str:
-        """새 기억을 저장하고 id를 돌려준다. category는 같은 항목(user_id, category)이 있으면 그 자리를 덮어쓴다."""
-        check_record(user_id, memory, vector, memory_type, category, source)
+    def _save_memory(self, user_id, text, vector, memory_type, category, source) -> str:
+        """처음이면 created_at, category를 다시 저장하면 updated_at을 쓴다(SAVE_SCRIPT)."""
         memory_id = build_memory_id(user_id, category)
         fields = _build_memory_fields(
-            user_id, memory, vector, memory_type, category, source
+            user_id, text, vector, memory_type, category, source
         )
         self._save_script(
             keys=[self._build_memory_key(memory_id), self._build_used_at_key(user_id)],
@@ -178,11 +167,9 @@ class RedisMemoryStore:
         )
         return memory_id
 
-    def list_memories(self, user_id, kinds=None) -> list[dict]:
-        """사용자의 기억(최대 100건). kinds로 고른 종류만 Redis 안에서 거른다(기본: 모든 종류)."""
-        query = (
-            f"{_build_user_query(user_id)} ({_build_kinds_query(parse_kinds(kinds))})"
-        )
+    def _list_memories(self, user_id, kinds) -> list[dict]:
+        """고른 종류만 Redis 안에서 걸러 최대 100건."""
+        query = f"{_build_user_query(user_id)} ({_build_kinds_query(kinds)})"
         documents, used_at_by_id = self._search_with_used_at(
             user_id, query, "LIMIT", 0, MAX_LIST_SIZE
         )
@@ -191,67 +178,49 @@ class RedisMemoryStore:
             for memory_id, fields in documents
         ]
 
-    def search_notes(self, user_id, vector, top_k=3, min_similarity=0.5) -> list[dict]:
-        """질문 벡터와 비슷한 note만 비슷한 순으로 최대 top_k건. similarity(0~1)가 min_similarity 이상인 것만."""
-        check_vector(vector)
-        top_k = parse_top_k(top_k)
+    def _find_similar_notes(self, user_id, question_vector, top_k) -> list[dict]:
         documents, used_at_by_id = self._search_with_used_at(
             user_id,
             _build_similar_notes_query(user_id, top_k),
-            "PARAMS", 2, "vector", _vector_to_bytes(vector),
+            "PARAMS", 2, "vector", _vector_to_bytes(question_vector),
             "SORTBY", "distance",  # 거리가 작을수록 비슷함
             "LIMIT", 0, top_k,
             return_fields=(*RETURN_FIELDS, "distance"),
         )  # fmt: skip
-        notes = [
+        return [
             _to_note_record_with_similarity(memory_id, fields, used_at_by_id)
             for memory_id, fields in documents
         ]
-        return [note for note in notes if note["similarity"] >= min_similarity]
 
-    def update_memory(self, memory_id, memory=None, vector=None, source=None) -> bool:
-        """준 값만 바꾸고 나머지는 그대로 둔다. memory를 바꾸면 vector도 같이 줘야 한다. 없는 id면 False.
-
-        type·category·user_id는 바꿀 수 없다(바꾸려면 지우고 새로 저장).
-        """
-        fields = build_update_fields(memory, vector, source)
+    def _update_memory_fields(self, user_id, memory_id, fields, vector) -> bool:
+        changed_fields = dict(fields)
         if vector is not None:
-            fields["embedding"] = _vector_to_bytes(vector)
-        fields["updated_at"] = time.time()
+            changed_fields["embedding"] = _vector_to_bytes(vector)
         is_updated = self._update_script(
-            keys=[self._build_memory_key(memory_id)], args=_flatten_fields(fields)
+            keys=[self._build_memory_key(memory_id)],
+            args=[user_id, *_flatten_fields(changed_fields)],
         )
         return bool(is_updated)
 
-    def touch(self, user_id, memory_ids, used_at=None) -> int:
-        """이 사용자 기억의 사용 시각만 used_at(ISO 글자, 기본: 지금)으로 바꾸고 바꾼 개수를 돌려준다.
-
-        Sorted Set만 고치므로 벡터를 다시 색인하지 않는다. 없는 id와 다른 사용자의 id는 건너뛴다.
-        """
-        check_user_id(user_id)
-        memory_ids = list(memory_ids)
-        if not memory_ids:
-            return 0
+    def _mark_memories_used(self, user_id, memory_ids, used_at_seconds) -> int:
+        """Sorted Set만 고치므로 벡터를 다시 색인하지 않는다."""
         used_at_key = self._build_used_at_key(user_id)
-        used_at_seconds = to_epoch_seconds(used_at)
         pipeline = self.client.pipeline()  # MULTI/EXEC: 개수 세기와 갱신을 한 번에
         pipeline.zmscore(used_at_key, memory_ids)
         pipeline.zadd(
             used_at_key, dict.fromkeys(memory_ids, used_at_seconds), xx=True
-        )  # XX: 이미 있는 id만 갱신
+        )  # XX: 이 사용자 Sorted Set에 이미 있는 id만 갱신(남의 id는 여기 없음)
         existing_scores, _ = pipeline.execute()
         return sum(score is not None for score in existing_scores)
 
-    def delete_memory(self, memory_id) -> bool:
-        """1건 삭제. 없는 id면 False."""
+    def _delete_memory(self, user_id, memory_id) -> bool:
         is_deleted = self._delete_script(
-            keys=[self._build_memory_key(memory_id)],
-            args=[self.used_at_key_prefix, memory_id],
+            keys=[self._build_memory_key(memory_id), self._build_used_at_key(user_id)],
+            args=[user_id, memory_id],
         )
         return bool(is_deleted)
 
-    def purge_user(self, user_id) -> int:
-        """사용자의 기억 전부와 사용 시각을 지우고 지운 개수를 돌려준다(퇴사 처리). 복구할 수 없다."""
+    def _delete_all_memories_of_user(self, user_id) -> int:
         user_query = _build_user_query(user_id)
         deleted_count = 0
         memory_keys = self._find_memory_keys(user_query)
@@ -380,12 +349,10 @@ def _build_similar_notes_query(user_id: str, top_k: int) -> str:
     return f"({note_query})=>[KNN {top_k} @embedding $vector AS distance]"
 
 
-def _build_memory_fields(
-    user_id, memory, vector, memory_type, category, source
-) -> dict:
+def _build_memory_fields(user_id, text, vector, memory_type, category, source) -> dict:
     fields = {
         "user_id": user_id,
-        "memory": memory,
+        "memory": text,
         "type": memory_type,
         "source": source,
         "embedding": _vector_to_bytes(vector),

@@ -1,4 +1,4 @@
-"""Redis 전용 테스트: 연결 점검, Mem0 설정, 인덱스 만들기, touch가 벡터를 다시 색인하지 않는지."""
+"""Redis 전용 테스트: 연결 점검, Mem0 설정, 인덱스 만들기, 사용 표시가 벡터를 다시 색인하지 않는지."""
 
 import uuid
 from types import SimpleNamespace
@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from backend.app.config import Settings
+from backend.app.schemas import ServiceError
 from backend.app.storage import build_mem0_vector_store, check_redis, get_memory_store
 
 LOCAL_REDIS_URL = "redis://127.0.0.1:6379"
@@ -37,7 +38,7 @@ def test_mem0_vector_store_config_is_accepted_by_mem0():
     redis_db_config(**config["config"])
 
 
-def test_ensure_creates_index_once_and_never_overwrites():
+def test_create_index_if_missing_creates_index_once_and_never_overwrites():
     """Redis 없이 가짜 연결로: 없으면 만들고, 있으면 그대로 두고, 동시에 만들어진 경우도 정상 처리한다."""
     redis = pytest.importorskip("redis")
     from backend.app.storage.redis_client import RedisMemoryStore
@@ -47,7 +48,7 @@ def test_ensure_creates_index_once_and_never_overwrites():
         fake_redis
     )  # 연결을 밖에서 넣을 수 있어서 가짜로 바꿔 끼울 수 있음
 
-    assert store.ensure() is True
+    assert store.create_index_if_missing() is True
     create_args = fake_redis.created[0]
     assert create_args[:2] == ("FT.CREATE", "idx:shipping:memory:v2")
     assert "INDEXMISSING" in create_args and "HNSW" in create_args
@@ -59,41 +60,39 @@ def test_ensure_creates_index_once_and_never_overwrites():
     )  # 숫자 칸으로 넣으면 검색 결과에서 정밀도가 잘림
 
     fake_redis.has_index = True
-    assert store.ensure() is False
+    assert store.create_index_if_missing() is False
     assert len(fake_redis.created) == 1
 
     fake_redis.has_index = False
     fake_redis.create_error = "Index already exists"
-    assert store.ensure() is False
+    assert store.create_index_if_missing() is False
 
     fake_redis.create_error = "Unknown argument"
-    with pytest.raises(redis.ResponseError):
-        store.ensure()  # 그 밖의 오류는 숨기지 않음
+    with pytest.raises(ServiceError):
+        store.create_index_if_missing()  # 그 밖의 오류는 숨기지 않고 ServiceError로 알림
 
 
-def test_touch_does_not_reindex_vector_document():
-    """로컬 Redis: touch는 Sorted Set만 고치므로 벡터 문서의 내부 번호(max_doc_id)가 그대로여야 한다."""
+def test_mark_memories_used_does_not_reindex_vector_document():
+    """로컬 Redis: 사용 표시는 Sorted Set만 고치므로 벡터 문서의 내부 번호(max_doc_id)가 그대로여야 한다."""
     pytest.importorskip("redis")
     store = _local_redis_store_or_skip()
-    user_id = f"touch-{uuid.uuid4().hex[:8]}"
-    memory_id = store.save_memory(
-        user_id, "화요일 출항을 선호한다", [1.0] + [0.0] * 1023, "context"
-    )
+    user_id = f"used-{uuid.uuid4().hex[:8]}"
+    memory_id = store.save_note(user_id, "화요일 출항을 선호한다", [1.0] + [0.0] * 1023)
     try:
         doc_id_before = _max_doc_id(store)
 
         for _ in range(20):
-            assert store.touch(user_id, [memory_id]) == 1
+            assert store.mark_memories_used(user_id, [memory_id]) == 1
 
         assert (
             _max_doc_id(store) == doc_id_before
-        )  # 바뀌었다면 touch마다 벡터까지 다시 색인된 것
+        )  # 바뀌었다면 사용 표시마다 벡터까지 다시 색인된 것
     finally:
-        store.purge_user(user_id)
+        store.delete_all_memories_of_user(user_id)
 
 
 class _FakeIndexRedis:
-    """ensure()가 쓰는 명령만 흉내 내는 가짜 Redis 연결."""
+    """create_index_if_missing()이 쓰는 명령만 흉내 내는 가짜 Redis 연결."""
 
     def __init__(self, redis_module):
         self.redis_module = redis_module

@@ -1,6 +1,6 @@
 """Qdrant 사용자 기억 저장소.
 
-QdrantMemoryStore의 메서드는 redis_client.py의 RedisMemoryStore와 같다(정의서 docs/storage.md 3절).
+공개 메서드와 값 검사는 schema.py의 MemoryStore에 있고, 여기는 Qdrant 읽기·쓰기만 둔다(정의서 docs/storage.md 3절).
 문서 검색용 Qdrant(retrieval/dense.py)와는 별개의 컬렉션을 쓴다.
 """
 
@@ -8,7 +8,7 @@ import time
 from functools import lru_cache
 
 from qdrant_client import QdrantClient, models
-from qdrant_client.http.exceptions import UnexpectedResponse
+from qdrant_client.http.exceptions import ApiException, UnexpectedResponse
 
 from ..config import Settings
 from .schema import (
@@ -16,15 +16,10 @@ from .schema import (
     HNSW_EF_CONSTRUCTION,
     HNSW_M,
     VECTOR_SIZE,
+    MemoryStore,
     build_memory_id,
-    build_update_fields,
-    check_record,
     check_user_id,
-    check_vector,
     is_uuid,
-    parse_kinds,
-    parse_top_k,
-    to_epoch_seconds,
     to_iso_time,
 )
 
@@ -57,12 +52,14 @@ def get_qdrant(settings: Settings) -> QdrantClient:
     )
 
 
-class QdrantMemoryStore:
+class QdrantMemoryStore(MemoryStore):
     """사용자 기억 저장소(Qdrant). 기억 1건 = point 1개(벡터 + payload).
 
-    last_used_at 수정은 payload만 바꾸므로 벡터 색인을 다시 만들지 않는다.
+    사용 시각 수정은 payload만 바꾸므로 벡터 색인을 다시 만들지 않는다.
     연결·이름은 만들 때 한 번 준비하고 메서드에서 재사용한다.
     """
+
+    db_error_types = (ApiException,)  # 연결 실패·서버 오류 응답의 공통 부모
 
     def __init__(
         self,
@@ -78,10 +75,10 @@ class QdrantMemoryStore:
 
     @classmethod
     def from_settings(cls, settings: Settings) -> "QdrantMemoryStore":
+        """설정의 Qdrant 주소로 저장소를 만든다."""
         return cls(get_qdrant(settings))
 
-    def ensure(self) -> bool:
-        """컬렉션이 없으면 만들고 True, 이미 있으면 건드리지 않고 False."""
+    def _create_index_if_missing(self) -> bool:
         if self.client.collection_exists(self.collection_name):
             return False
         if not self._create_collection():
@@ -89,21 +86,12 @@ class QdrantMemoryStore:
         self._create_payload_indexes()
         return True
 
-    def save_memory(
-        self,
-        user_id,
-        memory,
-        vector,
-        memory_type,
-        category=None,
-        source="auto_extracted",
-    ) -> str:
-        """새 기억을 저장하고 id를 돌려준다. category는 같은 항목(user_id, category)이 있으면 그 자리를 덮어쓴다."""
-        check_record(user_id, memory, vector, memory_type, category, source)
+    def _save_memory(self, user_id, text, vector, memory_type, category, source) -> str:
+        """category를 다시 저장하면 처음 만든 시각·사용 시각은 그대로 둔다(Redis와 같게)."""
         memory_id = build_memory_id(user_id, category)
         now_seconds = time.time()
         payload = _build_payload(
-            user_id, memory, memory_type, category, source, now_seconds
+            user_id, text, memory_type, category, source, now_seconds
         )
         if category is not None:
             payload.update(self._load_times_to_keep(memory_id, now_seconds))
@@ -111,9 +99,9 @@ class QdrantMemoryStore:
         self.client.upsert(self.collection_name, points=[point], wait=True)
         return memory_id
 
-    def list_memories(self, user_id, kinds=None) -> list[dict]:
-        """사용자의 기억(최대 100건). kinds로 고른 종류만 Qdrant 안에서 거른다(기본: 모든 종류)."""
-        kind_filters = [KIND_FILTERS[kind] for kind in parse_kinds(kinds)]
+    def _list_memories(self, user_id, kinds) -> list[dict]:
+        """고른 종류만 Qdrant 안에서 걸러 최대 100건."""
+        kind_filters = [KIND_FILTERS[kind] for kind in kinds]
         query_filter = models.Filter(
             must=[_build_user_condition(user_id)], should=kind_filters
         )  # should = 하나라도 맞으면
@@ -126,76 +114,55 @@ class QdrantMemoryStore:
         )
         return [_to_memory_record(point) for point in points]
 
-    def search_notes(self, user_id, vector, top_k=3, min_similarity=0.5) -> list[dict]:
-        """질문 벡터와 비슷한 note만 비슷한 순으로 최대 top_k건. similarity(0~1)가 min_similarity 이상인 것만."""
-        check_vector(vector)
+    def _find_similar_notes(self, user_id, question_vector, top_k) -> list[dict]:
         note_filter = models.Filter(
             must=[_build_user_condition(user_id), KIND_FILTERS["note"]]
         )
         response = self.client.query_points(
             self.collection_name,
-            query=list(vector),
+            query=list(question_vector),
             query_filter=note_filter,
-            limit=parse_top_k(top_k),
+            limit=top_k,
             with_payload=True,
         )
-        notes = [_to_note_record_with_similarity(point) for point in response.points]
-        return [
-            note for note in notes if note["similarity"] >= min_similarity
-        ]  # 하한 비교는 Redis와 같게 여기서
+        return [_to_note_record_with_similarity(point) for point in response.points]
 
-    def update_memory(self, memory_id, memory=None, vector=None, source=None) -> bool:
-        """준 값만 바꾸고 나머지는 그대로 둔다. memory를 바꾸면 vector도 같이 줘야 한다. 없는 id면 False.
-
-        type·category·user_id는 바꿀 수 없다(바꾸려면 지우고 새로 저장).
-        """
-        payload = build_update_fields(memory, vector, source)
-        if not self._memory_exists(memory_id):
+    def _update_memory_fields(self, user_id, memory_id, fields, vector) -> bool:
+        if not self._is_own_memory(user_id, memory_id):
             return False
-        payload["updated_at"] = time.time()
         if vector is not None:
             self._replace_vector(memory_id, vector)
         self.client.set_payload(
-            self.collection_name, payload=payload, points=[memory_id], wait=True
+            self.collection_name, payload=fields, points=[memory_id], wait=True
         )  # 준 칸만 바뀜
         return True
 
-    def touch(self, user_id, memory_ids, used_at=None) -> int:
-        """이 사용자 기억의 사용 시각만 used_at(ISO 글자, 기본: 지금)으로 바꾸고 바꾼 개수를 돌려준다.
-
-        없는 id와 다른 사용자의 id는 건너뛴다.
-        """
-        user_condition = _build_user_condition(user_id)
+    def _mark_memories_used(self, user_id, memory_ids, used_at_seconds) -> int:
         valid_ids = [memory_id for memory_id in memory_ids if is_uuid(memory_id)]
         if not valid_ids:
             return 0
-        own_points = models.Filter(
-            must=[user_condition, models.HasIdCondition(has_id=valid_ids)]
-        )
-        touched_count = self._count_points(own_points)
+        own_points = _build_own_points_filter(user_id, valid_ids)
+        used_count = self._count_points(own_points)
         self.client.set_payload(
             self.collection_name,
-            payload={"last_used_at": to_epoch_seconds(used_at)},
-            points=models.FilterSelector(
-                filter=own_points
-            ),  # 이 사용자의 있는 id만 골라짐
+            payload={"last_used_at": used_at_seconds},
+            points=models.FilterSelector(filter=own_points),  # 이 사용자의 있는 id만
             wait=True,
         )
-        return touched_count
+        return used_count
 
-    def delete_memory(self, memory_id) -> bool:
-        """1건 삭제. 없는 id면 False."""
-        if not self._memory_exists(memory_id):
+    def _delete_memory(self, user_id, memory_id) -> bool:
+        if not self._is_own_memory(user_id, memory_id):
             return False
+        own_point = _build_own_points_filter(user_id, [memory_id])
         self.client.delete(
             self.collection_name,
-            points_selector=models.PointIdsList(points=[memory_id]),
+            points_selector=models.FilterSelector(filter=own_point),
             wait=True,
         )
         return True
 
-    def purge_user(self, user_id) -> int:
-        """사용자의 기억 전부를 지우고 지운 개수를 돌려준다(퇴사 처리). 복구할 수 없다."""
+    def _delete_all_memories_of_user(self, user_id) -> int:
         user_points = models.Filter(must=[_build_user_condition(user_id)])
         deleted_count = self._count_points(user_points)
         self.client.delete(
@@ -205,13 +172,10 @@ class QdrantMemoryStore:
         )
         return deleted_count
 
-    def _memory_exists(self, memory_id: str) -> bool:
+    def _is_own_memory(self, user_id: str, memory_id: str) -> bool:
         if not is_uuid(memory_id):  # Qdrant id는 UUID만 허용
             return False
-        found_points = self.client.retrieve(
-            self.collection_name, [memory_id], with_payload=False
-        )
-        return bool(found_points)
+        return self._count_points(_build_own_points_filter(user_id, [memory_id])) > 0
 
     def _count_points(self, query_filter: models.Filter) -> int:
         return self.client.count(
@@ -280,11 +244,18 @@ def _build_user_condition(user_id: str) -> models.FieldCondition:
     return models.FieldCondition(key="user_id", match=models.MatchValue(value=user_id))
 
 
-def _build_payload(user_id, memory, memory_type, category, source, now_seconds) -> dict:
+def _build_own_points_filter(user_id: str, memory_ids: list[str]) -> models.Filter:
+    """이 사용자의 기억 중 memory_ids에 든 것만 고르는 조건(남의 id는 빠짐)."""
+    return models.Filter(
+        must=[_build_user_condition(user_id), models.HasIdCondition(has_id=memory_ids)]
+    )
+
+
+def _build_payload(user_id, text, memory_type, category, source, now_seconds) -> dict:
     """새 기억의 payload. 사용 시각 시작값 = 저장 시각(저장 직후 '가장 오래 안 쓴 것'으로 지워지지 않게)."""
     payload = {
         "user_id": user_id,
-        "memory": memory,
+        "memory": text,
         "type": memory_type,
         "source": source,
         "created_at": now_seconds,
