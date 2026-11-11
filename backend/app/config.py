@@ -1,5 +1,6 @@
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -36,6 +37,7 @@ class Settings(BaseSettings):
     qdrant_docs_qwen_collection: str = 'docs_qwen06_v1'
     qdrant_memory_collection: str = 'mem_users_bge_v1'
     memory_enabled: bool = True
+    memory_backend: Literal['mem0', 'dummy'] = 'mem0'
     mem0_embedding_model: str = 'bge-m3'
     mem0_embedding_dimensions: int = 1024
     mem0_history_db_path: Path = ROOT / 'runtime/mem0/history.db'
