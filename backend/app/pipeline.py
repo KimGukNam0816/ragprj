@@ -61,6 +61,7 @@ def run_query(s: Settings, request: QueryRequest, *, entrypoint='cli', run_id=No
     config['low_vram_mode']=s.low_vram_mode
     config['embedding_context_tokens']=s.embedding_context_tokens
     config['retrieval_mode'] = request.mode
+    config['memory_backend'] = s.memory_backend
     if s.generation_llm_provider == 'ollama':
         import httpx
         tags = httpx.get(s.ollama_base_url.rstrip('/') + '/api/tags', timeout=15).json()['models']
@@ -83,10 +84,17 @@ def run_query(s: Settings, request: QueryRequest, *, entrypoint='cli', run_id=No
             record['trace_id'] = trace_id
             memory_text='사용하지 않음'
             if request.memory_enabled:
-                from .memory import search_memory
+                if s.memory_backend == 'dummy':
+                    if s.publish_metrics:
+                        raise ServiceError('dummy_memory_forbidden', 'Dummy preferences are for integration testing only', 422)
+                    from .context_engineering.dummy_preferences import search_dummy_memory as search_memory
+                    warning.append('Dummy preferences enabled: no Mem0 embedding/search/storage was called')
+                else:
+                    from .memory import search_memory
                 try:
                     memories=search_memory(request.question,request.user_id)
                     record['memory_results']=memories
+                    record['memory_backend']=s.memory_backend
                     memory_text=json.dumps(memories,ensure_ascii=False)[:1500]
                 except Exception as exc:
                     warning.append('Memory search unavailable: '+type(exc).__name__)
