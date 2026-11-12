@@ -13,9 +13,14 @@ from ..providers import Providers
 
 CACHE_NAME = "shipping_answer_cache"
 SCOPE_FIELD = "scope"  # 임베딩 프로필·검색 모드·인덱스 지문이 같은 답만 돌려준다
-NUMBER_TOKEN_PATTERN = re.compile(
-    r"\d+(?:[.,:/-]\d+)*"
-)  # 50, 2028-05-20, 09:00, 1,000 같은 값
+# 답이 질문의 값을 그대로 되풀이하므로, 벡터가 가까워도 이 토큰이 다르면 다른 질문으로 본다.
+KEY_TOKEN_PATTERNS = (
+    re.compile(r"\d+(?:[.,:/-]\d+)*"),  # 50, 2028-05-20, 09:00, 1,000 같은 값
+    re.compile(
+        r"[A-Za-z]+\d[A-Za-z\d-]*"
+    ),  # IS01-051-01, GR26-P0542 같은 문서·기록 코드
+    re.compile(r"[가-힣A-Za-z]{2,6}(?:상공|물류|해운|선사|상사|무역|산업)"),  # 회사명
+)
 NEAREST_SEARCH_DISTANCE = (
     1.0  # 코사인 거리 0~2. 1.0 안쪽이면 "비슷한 편"이라 miss 기록용으로 충분
 )
@@ -41,8 +46,8 @@ def find_cached_answer(
 ) -> dict | None:
     """같은 범위에서 질문 벡터와 가장 가까운 저장 답. 저장된 것이 없으면 None, Redis 실패는 예외.
 
-    돌려주는 dict: {"is_hit": 임계값 안이고 숫자·날짜도 같으면 True, "response": 저장했던 응답 dict,
-    "question": 저장 당시 질문, "distance": 코사인 거리, "miss_reason": None | "distance" | "numbers_differ"}.
+    돌려주는 dict: {"is_hit": 임계값 안이고 숫자·코드·회사명도 같으면 True, "response": 저장했던 응답 dict,
+    "question": 저장 당시 질문, "distance": 코사인 거리, "miss_reason": None | "distance" | "key_tokens_differ"}.
     임계값 밖이어도 거리를 돌려줘 miss 이유를 기록할 수 있다.
     """
     return _find_in_cache(get_answer_cache(settings), question, question_vector, scope)
@@ -132,19 +137,20 @@ def _find_in_cache(
 
 
 def _choose_miss_reason(distance, threshold, question, cached_question) -> str | None:
-    """hit이면 None. 숫자·날짜만 다른 질문(50개 vs 70개)은 벡터가 거의 같아서 따로 걸러낸다."""
+    """hit이면 None. 숫자·코드·회사명만 다른 질문(50개 vs 70개)은 벡터가 거의 같아서 따로 걸러낸다."""
     if distance > threshold:
         return "distance"
-    if not _have_same_numbers(question, cached_question):
-        return "numbers_differ"
+    if _extract_key_tokens(question) != _extract_key_tokens(cached_question):
+        return "key_tokens_differ"
     return None
 
 
-def _have_same_numbers(question: str, cached_question: str) -> bool:
-    """두 질문에 나오는 숫자·날짜 토큰이 (개수까지) 같은지."""
-    return sorted(NUMBER_TOKEN_PATTERN.findall(question)) == sorted(
-        NUMBER_TOKEN_PATTERN.findall(cached_question)
-    )
+def _extract_key_tokens(question: str) -> list[str]:
+    """질문에 나오는 숫자·날짜·코드·회사명 토큰을 정렬해 돌려준다(개수까지 비교하려고 list)."""
+    tokens = []
+    for pattern in KEY_TOKEN_PATTERNS:
+        tokens.extend(pattern.findall(question))
+    return sorted(tokens)
 
 
 def _store_in_cache(cache, question, question_vector, scope, response: dict) -> None:

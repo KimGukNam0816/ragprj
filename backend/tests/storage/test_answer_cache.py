@@ -106,8 +106,27 @@ def test_same_vector_but_different_numbers_is_not_a_hit():
     seventy = "2028-05-20 09:00 기준 케이블 드럼 70개 건의 보관료는?"
     reworded = "케이블 드럼 50개 건 보관료, 2028-05-20 09:00 기준으로 알려줘"
 
-    assert _choose_miss_reason(0.05, 0.1, seventy, fifty) == "numbers_differ"
+    assert _choose_miss_reason(0.05, 0.1, seventy, fifty) == "key_tokens_differ"
     assert (
         _choose_miss_reason(0.05, 0.1, reworded, fifty) is None
     )  # 순서만 달라도 같은 값
     assert _choose_miss_reason(0.2, 0.1, fifty, fifty) == "distance"
+
+
+def test_same_vector_but_different_company_or_code_is_not_a_hit():
+    """회사명(동림상공→한성물류)이나 기록 코드만 바뀐 질문은 벡터 거리 0.06 안쪽이어도 다른 질문이다."""
+    from backend.app.storage.answer_cache import _choose_miss_reason
+
+    base = (
+        "2028-05-20 09:00 기준 동림상공의 케이블 드럼 50개 건에서 보관료를 알려 주세요."
+    )
+    other_company = base.replace("동림상공", "한성물류")
+    reworded = (
+        "동림상공 케이블 드럼 50개 건(2028-05-20 09:00 기준)의 보관료를 설명해 주세요."
+    )
+    code = "IS01-051-01 기록의 처리 상태는?"
+    other_code = "IS01-051-02 기록의 처리 상태는?"
+
+    assert _choose_miss_reason(0.05, 0.1, other_company, base) == "key_tokens_differ"
+    assert _choose_miss_reason(0.05, 0.1, reworded, base) is None
+    assert _choose_miss_reason(0.01, 0.1, other_code, code) == "key_tokens_differ"
