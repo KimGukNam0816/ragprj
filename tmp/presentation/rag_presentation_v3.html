@@ -1,0 +1,475 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>해운 RAG 발표</title>
+<style>
+@page { size: 1280px 720px; margin: 0; }
+:root {
+  --ink: #16202e; --sub: #4a5668; --mute: #7b8696; --line: #dde2ea;
+  --navy: #12355b; --accent: #1f6feb; --teal: #0f8a7e; --warn: #b4540a; --bad: #b42318;
+  --bg: #ffffff; --soft: #f3f6fa; --hl: #e8f1ff;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: #fff; }
+body { font-family: "Malgun Gothic", "맑은 고딕", "Apple SD Gothic Neo", sans-serif; color: var(--ink); -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.slide { width: 1280px; height: 720px; position: relative; overflow: hidden; page-break-after: always; break-after: page; padding: 56px 72px 64px; background: var(--bg); }
+.slide:last-child { page-break-after: auto; break-after: auto; }
+.sec { font-size: 15px; font-weight: 700; color: var(--accent); letter-spacing: .02em; }
+h1 { font-size: 34px; font-weight: 800; margin-top: 6px; letter-spacing: -0.02em; }
+.lead { font-size: 18px; color: var(--sub); margin-top: 10px; line-height: 1.5; }
+.foot { position: absolute; left: 72px; right: 72px; bottom: 24px; display: flex; justify-content: space-between; font-size: 12px; color: var(--mute); border-top: 1px solid var(--line); padding-top: 10px; }
+.note { position: absolute; left: 72px; right: 72px; bottom: 54px; font-size: 13px; color: var(--mute); line-height: 1.5; }
+.body { margin-top: 40px; }
+ul.b { list-style: none; }
+ul.b li { position: relative; padding-left: 22px; font-size: 21px; line-height: 1.6; margin-bottom: 16px; }
+ul.b li::before { content: ""; position: absolute; left: 2px; top: 12px; width: 8px; height: 8px; border-radius: 2px; background: var(--accent); }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+.grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+.grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+.card { background: var(--soft); border-radius: 12px; padding: 28px 28px; }
+.card h3 { font-size: 23px; margin-bottom: 14px; color: var(--navy); }
+.card p, .card li { font-size: 18px; line-height: 1.65; color: var(--sub); }
+.card li { margin-bottom: 6px; }
+.card ul { padding-left: 18px; }
+.num { font-size: 13px; font-weight: 800; color: var(--accent); margin-bottom: 4px; }
+.tag { display: inline-block; font-size: 12px; font-weight: 700; padding: 3px 8px; border-radius: 4px; background: var(--hl); color: var(--accent); }
+table.t { width: 100%; border-collapse: collapse; font-size: 18px; }
+table.t th { text-align: left; font-weight: 700; color: var(--sub); font-size: 15px; padding: 11px 14px; border-bottom: 2px solid var(--ink); background: #fff; }
+table.t td { padding: 12px 14px; border-bottom: 1px solid var(--line); }
+table.t td.r, table.t th.r { text-align: right; font-variant-numeric: tabular-nums; }
+table.t tr.pick td { background: var(--hl); font-weight: 700; }
+table.t tr.grp td { border-top: 2px solid var(--line); }
+.best { color: var(--accent); font-weight: 800; }
+.bad { color: var(--bad); font-weight: 700; }
+.ok { color: var(--teal); font-weight: 700; }
+.kpi { font-size: 44px; font-weight: 800; color: var(--navy); letter-spacing: -0.02em; }
+.kpi small { font-size: 18px; color: var(--sub); font-weight: 600; margin-left: 6px; }
+.kpil { font-size: 15px; color: var(--sub); margin-top: 4px; }
+.callout { border-left: 4px solid var(--accent); background: var(--hl); padding: 14px 18px; font-size: 17px; line-height: 1.55; border-radius: 0 8px 8px 0; }
+.callout.warn { border-color: var(--warn); background: #fff4e8; }
+.placeholder { border: 2px dashed var(--warn); color: var(--warn); background: #fffaf3; border-radius: 10px; padding: 18px 22px; font-size: 16px; line-height: 1.6; }
+.flow { display: flex; align-items: stretch; gap: 10px; }
+.flow .step { flex: 1; background: var(--soft); border-radius: 12px; padding: 22px 20px; }
+.flow .arrow { display: flex; align-items: center; color: var(--mute); font-size: 24px; }
+.step h3 { font-size: 22px; color: var(--navy); margin-bottom: 10px; }
+.step p { font-size: 17px; color: var(--sub); line-height: 1.6; }
+/* cover */
+.cover { background: var(--navy); color: #fff; padding: 96px 96px; }
+.cover .kicker { font-size: 18px; color: #9cc3ff; font-weight: 700; }
+.cover h1 { font-size: 52px; margin-top: 18px; line-height: 1.25; }
+.cover .lead { color: #d6e4f7; font-size: 22px; margin-top: 22px; }
+.cover .meta { position: absolute; left: 96px; bottom: 80px; font-size: 18px; color: #c7d6ea; }
+.agenda { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; margin-top: 36px; }
+.agenda .a { border-top: 3px solid var(--navy); padding-top: 14px; }
+.agenda .a b { font-size: 15px; color: var(--accent); }
+.agenda .a h3 { font-size: 22px; margin-top: 4px; }
+.agenda .a p { font-size: 15px; color: var(--sub); margin-top: 6px; line-height: 1.5; }
+.agenda .a .m { font-size: 13px; color: var(--mute); margin-top: 8px; }
+.divider { background: var(--soft); display: flex; flex-direction: column; justify-content: center; }
+.divider .big { font-size: 80px; font-weight: 800; color: var(--accent); }
+.divider h1 { font-size: 46px; }
+/* architecture */
+.arch { display: grid; grid-template-columns: 260px 1fr 320px; gap: 24px; margin-top: 40px; align-items: stretch; }
+.box { border: 2px solid var(--navy); border-radius: 10px; padding: 18px 20px; background: #fff; }
+.box h4 { font-size: 19px; color: var(--navy); margin-bottom: 8px; }
+.box p { font-size: 16px; color: var(--sub); line-height: 1.6; }
+.box.ext { border-style: dashed; border-color: var(--mute); }
+.col { display: flex; flex-direction: column; gap: 12px; justify-content: center; }
+.bar { height: 14px; border-radius: 3px; background: var(--accent); display: inline-block; vertical-align: middle; }
+.bar.g { background: #b7c4d6; }
+.solo .slide { display: none; } .solo .slide.on { display: block; }
+</style>
+<script>
+// ?s=N shows only slide N (used for per-slide preview screenshots)
+addEventListener('DOMContentLoaded', () => {
+  const n = +new URLSearchParams(location.search).get('s');
+  if (n) { document.body.classList.add('solo'); document.querySelectorAll('.slide')[n - 1].classList.add('on'); }
+});
+</script>
+</head>
+<body>
+
+<!-- 1. Cover -->
+<section class="slide cover">
+  <div class="kicker">해.운.대 · 3차 프로젝트 발표</div>
+  <h1>해운 문서 기반<br>업무 지원 RAG</h1>
+  <p class="lead">예약·서류·비용·승인 조건을 문서 근거와 함께 확인하는 업무 도우미</p>
+  <div class="meta">2026.11.13 &nbsp;|&nbsp; 이정로 · 권오륜 · 정김기보 · 김국남 · 노영우</div>
+</section>
+
+<!-- 2. Agenda -->
+<section class="slide">
+  <div class="sec">AGENDA</div>
+  <h1>발표 순서</h1>
+  <div class="agenda">
+    <div class="a"><b>01</b><h3>문제 정의와 목표</h3><p>왜 해운 Advanced인가, 팀 구성과 협업 방식</p></div>
+    <div class="a"><b>02</b><h3>시스템 설계</h3><p>아키텍처, 문서 적재, 검색·재정렬, Context 구성과 검증</p></div>
+    <div class="a"><b>03</b><h3>서비스 시연</h3><p>확정 판단·되묻기·승인 범위 3개 시나리오와 Langfuse 기록</p></div>
+    <div class="a"><b>04</b><h3>평가 결과</h3><p>세 RAG 방식 비교, 답변 품질, 운영 지표, gpt-6-luna 비교, 보안</p></div>
+    <div class="a"><b>05</b><h3>주요 고민과 해결</h3><p>시행착오와 대응, 실패 사례 분석</p></div>
+    <div class="a"><b>06</b><h3>최종 선택과 회고</h3><p>선택 근거, 한계와 다음 단계, Q&amp;A</p></div>
+  </div>
+  <div class="foot"><span>해.운.대</span><span>02</span></div>
+</section>
+
+<!-- 3. Problem -->
+<section class="slide">
+  <div class="sec">01 문제 정의와 목표</div>
+  <h1>해운 Advanced를 선택한 이유</h1>
+  <p class="lead">예약 확정, 비용 면제처럼 <b>확대 해석하면 실제 손실로 이어지는 질문</b>에 근거로 답하는 것이 목표입니다.</p>
+  <div class="grid3 body">
+    <div class="card"><div class="num">대상 사용자</div><h3>물류 담당자</h3><p>예약·서류 제출·운송 비용을 확인하는 실무자. 같은 건이 여러 기록철에 흩어져 있어 직접 찾기 어렵습니다.</p></div>
+    <div class="card"><div class="num">문제 규모</div><h3>PDF 120개 · 18,000쪽</h3><p>여러 기록에서 대상·기준일·승인 범위를 함께 확인해야 답이 정해지는 Advanced 데이터셋입니다.</p></div>
+    <div class="card"><div class="num">서비스 목표</div><h3>답변 · 되묻기 · 보류</h3><p>근거가 충분하면 출처와 함께 답하고, 조건이 빠지면 되묻고, 근거가 부족하면 이유와 함께 보류합니다.</p></div>
+  </div>
+  <div class="callout" style="margin-top:32px"><b>발제 필수 과제 4개</b>를 모두 이 발표에서 다룹니다: PDF 기반 RAG 서비스 · 세 RAG 방식 비교 · FastAPI·LangChain·Langfuse 연결 · 평가셋 품질 평가(검색·답변·운영·보안)</div>
+  <div class="foot"><span>해.운.대</span><span>03</span></div>
+</section>
+
+<!-- 4. Team -->
+<section class="slide">
+  <div class="sec">01 문제 정의와 목표</div>
+  <h1>팀 구성과 협업 방식</h1>
+  <div class="grid2 body" style="grid-template-columns: 1.35fr 1fr;">
+    <table class="t">
+      <tr><th style="width:110px">담당자</th><th>핵심 업무</th></tr>
+      <tr><td><b>이정로</b></td><td>Redis·Qdrant 기억 저장소와 데이터 계약</td></tr>
+      <tr><td><b>권오륜</b></td><td>Dense·Hybrid·Reranker 검색, 검색 평가와 결과 화면</td></tr>
+      <tr><td><b>정김기보</b></td><td>Mem0 선호 조회·변환·Context 전달</td></tr>
+      <tr><td><b>김국남</b></td><td>Context 구성·예산·프롬프트·출력 검증, 전체 통합</td></tr>
+      <tr><td><b>노영우</b></td><td>Langfuse trace·점수·운영 관측, 실시간 Judge</td></tr>
+    </table>
+    <div class="card">
+      <h3>협업 규칙</h3>
+      <ul>
+        <li>담당별 전용 폴더·테스트·문서로 작업 범위 분리</li>
+        <li>검색 결과 → 선호 → Context → 생성·검증 → 관측의 <b>공통 입출력 계약 v1</b>을 먼저 확정</li>
+        <li>기능 브랜치 → PR → main 통합, 통합 전 전체 pytest 실행</li>
+        <li>공통 설정·진입점 변경은 별도 통합 작업으로 처리</li>
+      </ul>
+    </div>
+  </div>
+  <div class="foot"><span>해.운.대</span><span>04</span></div>
+</section>
+
+<!-- 5. Architecture -->
+<section class="slide">
+  <div class="sec">02 시스템 설계</div>
+  <h1>전체 시스템 아키텍처</h1>
+  <div class="arch">
+    <div class="col">
+      <div class="box"><h4>사용자 / 웹</h4><p>질문 입력, 답변·출처·상태 확인</p></div>
+      <div class="box ext"><h4>서버 배치 적재</h4><p>PDF 추출 · 청킹 · 임베딩</p></div>
+    </div>
+    <div class="col">
+      <div class="box" style="border-width:3px"><h4>FastAPI 서버</h4>
+        <p><b>검색</b> Dense · BM25 · RRF · Reranker</p>
+        <p><b>Context</b> 중복 제거 · 토큰 예산 · 프롬프트</p>
+        <p><b>생성·검증</b> JSON 스키마 · 인용 ID · 결과 상태</p>
+      </div>
+      <div class="box"><h4>LLM</h4><p>gpt-6-luna (발제 기준) / Ollama qwen3:4b (로컬 개발·비교)</p></div>
+    </div>
+    <div class="col">
+      <div class="box"><h4>Qdrant</h4><p>문서 벡터 인덱스 (BGE·Qwen 각 1,024차원)</p></div>
+      <div class="box"><h4>Mem0 기억 저장소</h4><p>사용자 표현 선호 (문서 근거와 분리)</p></div>
+      <div class="box"><h4>Langfuse</h4><p>요청 ID 단위 trace · 점수 · 실시간 Judge</p></div>
+    </div>
+  </div>
+  <div class="foot"><span>해.운.대</span><span>05</span></div>
+</section>
+
+<!-- 6. Ingestion + embedding -->
+<section class="slide">
+  <div class="sec">02 시스템 설계</div>
+  <h1>문서 적재와 임베딩 모델 선정</h1>
+  <div class="flow body">
+    <div class="step"><div class="num">01 추출</div><h3>pypdf</h3><p>페이지별 텍스트<br>book_id · page 보존</p></div>
+    <div class="arrow">→</div>
+    <div class="step"><div class="num">02 청킹</div><h3>600 / 100 토큰</h3><p>목표 600, 중첩 100<br>페이지 첫 3줄을 문맥 머리로 추가</p></div>
+    <div class="arrow">→</div>
+    <div class="step"><div class="num">03 임베딩</div><h3>BGE / Qwen</h3><p>동일 청크로 두 인덱스<br>1,024차원</p></div>
+    <div class="arrow">→</div>
+    <div class="step"><div class="num">04 저장</div><h3>Qdrant + BM25</h3><p>벡터 · 청크 · manifest<br>BM25 준비</p></div>
+  </div>
+  <table class="t" style="margin-top:28px">
+    <tr><th style="width:240px">임베딩 모델</th><th>선정 이유</th><th>비교 조건</th></tr>
+    <tr><td><b>BGE-M3</b></td><td>다국어 검색 기준 후보, Mem0 기억 검색과 같은 모델</td><td rowspan="2">같은 청크 · 같은 60문항 · Hit@4 · Recall@4 · 지연<br><span style="color:var(--mute);font-size:14px">선정 제약: 8GB 로컬 실행 · 재색인 비용 · 일정</span></td></tr>
+    <tr><td><b>Qwen3-Embedding 0.6B</b></td><td>작은 모델로 품질과 실행 비용 비교</td></tr>
+  </table>
+  <div class="foot"><span>해.운.대</span><span>06</span></div>
+</section>
+
+<!-- 7. Retrieval -->
+<section class="slide">
+  <div class="sec">02 시스템 설계</div>
+  <h1>질의 처리: 검색과 재정렬</h1>
+  <div class="flow body">
+    <div class="step"><div class="num">01</div><h3>질문 임베딩</h3><p>문서와 같은 모델 프로필 사용</p></div>
+    <div class="arrow">→</div>
+    <div class="step"><div class="num">02</div><h3>후보 검색</h3><p>Dense 20개<br>BM25 20개</p></div>
+    <div class="arrow">→</div>
+    <div class="step"><div class="num">03</div><h3>순위 결합</h3><p>RRF k=60</p></div>
+    <div class="arrow">→</div>
+    <div class="step"><div class="num">04</div><h3>재정렬</h3><p>Qwen3-Reranker 0.6B<br>후보 20개 재평가</p></div>
+    <div class="arrow">→</div>
+    <div class="step"><div class="num">05</div><h3>최종 4청크</h3><p>세 방식 모두 k=4</p></div>
+  </div>
+  <table class="t" style="margin-top:30px">
+    <tr><th style="width:240px">방식</th><th>사용 단계</th></tr>
+    <tr><td><b>Naive (Dense)</b></td><td>01 → 02(Dense) → 05</td></tr>
+    <tr><td><b>Hybrid</b></td><td>01 → 02(Dense + BM25) → 03 → 05</td></tr>
+    <tr><td><b>Hybrid + Reranker</b></td><td>01 → 02 → 03 → 04 → 05</td></tr>
+  </table>
+  <div class="foot"><span>해.운.대</span><span>07</span></div>
+</section>
+
+<!-- 8. Context & validation -->
+<section class="slide">
+  <div class="sec">02 시스템 설계</div>
+  <h1>Context 구성과 답변 검증</h1>
+  <div class="grid4 body">
+    <div class="card"><div class="num">01 builder</div><h3>문맥 정리</h3><ul><li>중복 청크 제거</li><li>동일 ID 충돌 검사</li><li>출처 유지</li></ul></div>
+    <div class="card"><div class="num">02 budget</div><h3>토큰 예산</h3><ul><li>역할·질문·스키마</li><li>선호·근거 길이 추정</li><li>초과분 제외 기록</li></ul></div>
+    <div class="card"><div class="num">03 prompts</div><h3>판단 지시</h3><ul><li>시점·승인 범위 확인</li><li>부분 답변·보류</li><li>자료 속 지시문 방어</li></ul></div>
+    <div class="card"><div class="num">04 validation</div><h3>출력 검증</h3><ul><li>필드·타입</li><li>인용 ID·본문 일치</li><li>결과 상태 검증</li></ul></div>
+  </div>
+  <div class="callout" style="margin-top:30px">모델 입력 = 서비스 지침 + 질문 + <b>별도 구획의 표현 선호</b> + 최종 PDF 근거.<br>선호 기억이 있어도 문서 검색은 생략하지 않습니다.</div>
+  <div class="foot"><span>해.운.대</span><span>08</span></div>
+</section>
+
+<!-- 9. Demo divider -->
+<section class="slide divider">
+  <div class="sec">03 서비스 시연</div>
+  <h1 style="margin-top:12px">시연 시나리오</h1>
+  <table class="t" style="margin-top:30px; background:#fff;">
+    <tr><th style="width:130px">평가셋 ID</th><th>질문 요약</th><th>확인할 동작</th></tr>
+    <tr><td><b>AS-DEV03</b></td><td>접수번호를 받았고 회신은 "검토 중", 예약 확정인가?</td><td>확정으로 확대 해석하지 않고 확인서 필요 안내</td></tr>
+    <tr><td><b>AS-DEV12</b></td><td>"가온루트 이번 건 마감이 몇 시죠?"</td><td>대상 예약·업무를 되묻는 <span class="tag">needs_clarification</span></td></tr>
+    <tr><td><b>AS-DEV23</b></td><td>무료 2일 연장 요청을 적용해도 되는가?</td><td>승인 미등록 판단 + 비용별 금액 근거</td></tr>
+    <tr><td><b>Langfuse</b></td><td>위 요청 중 하나의 trace 열기</td><td>검색 결과 → 실제 모델 입력 → 출력이 같은 요청 ID로 연결</td></tr>
+  </table>
+  <p class="lead" style="margin-top:22px;font-size:16px">질문만 입력합니다. 정답·근거 라벨은 생성 입력에 넣지 않습니다.</p>
+  <div class="foot"><span>해.운.대</span><span>09</span></div>
+</section>
+
+<!-- 10. Eval design -->
+<section class="slide">
+  <div class="sec">04 평가 결과</div>
+  <h1>평가 설계: 같은 질문, 같은 조건</h1>
+  <div class="grid3 body">
+    <div class="card"><div class="num">평가셋</div><h3>60문항 전체</h3><p>development 30 + additional 30.<br>답변·되묻기·보류 문항 포함.<br>2 임베딩 × 3 방식 = 360회 실행</p></div>
+    <div class="card"><div class="num">고정 조건</div><h3>검색 방식만 변경</h3><p>같은 청크 · 최종 k=4 · 후보 20<br>생성 qwen3:4b · 같은 프롬프트<br>출력 한도 2,048토큰</p></div>
+    <div class="card"><div class="num">지표</div><h3>검색 · 답변 · 운영</h3><p>Hit@4 · Recall@4<br>RAGAS Faithfulness · Judge 4항목<br>응답 시간 · 오류율 · 토큰</p></div>
+  </div>
+  <div class="callout warn" style="margin-top:26px">공개된 평가셋으로 로컬에서 예비 채점한 결과입니다. 비공개 테스트 성능이 아니며, 대표 사례는 원문과 대조했습니다.</div>
+  <div class="foot"><span>해.운.대</span><span>10</span></div>
+</section>
+
+<!-- 11. Retrieval metrics -->
+<section class="slide">
+  <div class="sec">04 평가 결과</div>
+  <h1>검색 지표: Hybrid가 Hit@4를 98%까지 끌어올림</h1>
+  <table class="t body">
+    <tr><th>임베딩</th><th>검색 방식</th><th class="r">Hit@4</th><th class="r">Recall@4</th><th style="width:300px"></th><th class="r">평균 응답</th></tr>
+    <tr><td>BGE</td><td>Naive</td><td class="r">63.8%</td><td class="r">32.6%</td><td><span class="bar g" style="width:98px"></span></td><td class="r">9.72초</td></tr>
+    <tr><td>BGE</td><td>Hybrid</td><td class="r best">98.3%</td><td class="r">54.5%</td><td><span class="bar g" style="width:164px"></span></td><td class="r">9.37초</td></tr>
+    <tr class="pick"><td>BGE</td><td>Hybrid + Reranker</td><td class="r best">98.3%</td><td class="r">60.3%</td><td><span class="bar" style="width:181px"></span></td><td class="r">13.38초</td></tr>
+    <tr class="grp"><td>Qwen</td><td>Naive</td><td class="r">51.7%</td><td class="r">34.5%</td><td><span class="bar g" style="width:104px"></span></td><td class="r">12.18초</td></tr>
+    <tr><td>Qwen</td><td>Hybrid</td><td class="r">94.7%*</td><td class="r">53.8%*</td><td><span class="bar g" style="width:161px"></span></td><td class="r">12.58초</td></tr>
+    <tr><td>Qwen</td><td>Hybrid + Reranker</td><td class="r">96.6%</td><td class="r best">60.9%</td><td><span class="bar g" style="width:183px"></span></td><td class="r">13.78초</td></tr>
+  </table>
+  <p class="note">Hit: 정답 문서를 하나 이상 회수한 비율 / Recall: 필요한 정답 문서 중 회수한 비율(문서 단위). 분모 58문항(정답 문서 미등록 2문항 제외), *Qwen Hybrid는 시스템 오류 1건으로 57. 평균 응답은 LLM 생성을 포함한 전체 시간.</p>
+  <div class="foot"><span>해.운.대</span><span>11</span></div>
+</section>
+
+<!-- 12. Insight -->
+<section class="slide">
+  <div class="sec">04 평가 결과</div>
+  <h1>핵심 발견: 하나는 찾지만, 전부는 못 가져온다</h1>
+  <div class="grid3 body">
+    <div class="card"><div class="kpi">98% <small>vs 60%</small></div><div class="kpil">BGE Hybrid+Reranker의 Hit@4 vs Recall@4</div></div>
+    <div class="card"><div class="kpi">1.00 <small>→ 0.48</small></div><div class="kpil">Recall@4, 정답 문서 1개 문항 → 4개 이상 문항</div></div>
+    <div class="card"><div class="kpi">+0.22 <small>/ +0.06</small></div><div class="kpil">BGE Recall@4 향상폭: Hybrid(BM25) / Reranker 추가</div></div>
+  </div>
+  <ul class="b" style="margin-top:28px">
+    <li><b>원인:</b> 같은 건이 여러 기록철에 흩어진 문항에서 최종 4자리가 부족합니다. 문제 정의에서 짚은 "여러 기록에 흩어진 근거" 문제가 그대로 드러났습니다.</li>
+    <li><b>BM25 효과:</b> 예약번호·장비코드처럼 정확한 문자열을 BM25가 잡아 의미 검색이 놓친 문서를 보충했습니다.</li>
+    <li><b>Reranker 효과:</b> 후보 20개 안의 정답 문서를 상위 4개로 끌어올렸지만, BGE 기준 평균 응답이 4.0초 늘었습니다.</li>
+  </ul>
+  <div class="foot"><span>해.운.대</span><span>12</span></div>
+</section>
+
+<!-- 13. Answer quality -->
+<section class="slide">
+  <div class="sec">04 평가 결과</div>
+  <h1>답변 품질: Faithfulness와 LLM-as-a-Judge</h1>
+  <table class="t body">
+    <tr><th>임베딩 · 방식</th><th class="r">Faithfulness</th><th class="r">사실</th><th class="r">조건</th><th class="r">근거</th><th class="r">판단</th></tr>
+    <tr><td>BGE Naive</td><td class="r">0.353</td><td class="r">0.533</td><td class="r">0.633</td><td class="r">0.600</td><td class="r">0.567</td></tr>
+    <tr><td>BGE Hybrid</td><td class="r">0.527</td><td class="r">0.767</td><td class="r best">0.933</td><td class="r">0.883</td><td class="r">0.817</td></tr>
+    <tr class="pick"><td>BGE Hybrid + Reranker</td><td class="r best">0.681</td><td class="r best">0.881*</td><td class="r">0.915*</td><td class="r best">0.932*</td><td class="r">0.847*</td></tr>
+    <tr class="grp"><td>Qwen Naive</td><td class="r">0.359</td><td class="r">0.475*</td><td class="r">0.593*</td><td class="r">0.492*</td><td class="r">0.475*</td></tr>
+    <tr><td>Qwen Hybrid</td><td class="r">0.537*</td><td class="r">0.797*</td><td class="r">0.847*</td><td class="r">0.831*</td><td class="r">0.750</td></tr>
+    <tr><td>Qwen Hybrid + Reranker</td><td class="r">0.630*</td><td class="r">0.817</td><td class="r">0.917</td><td class="r">0.900</td><td class="r best">0.867</td></tr>
+  </table>
+  <p class="note">Faithfulness: 최종 문맥이 답변 주장을 지지하는 비율. Judge: 항목별 충족률(합산하지 않음). 분모 60, *표시는 평가 불가 1건 제외로 59.<br>생성 qwen3:4b / 채점 qwen3:4b-instruct-2507-q4_K_M (로컬 예비 채점).</p>
+  <div class="foot"><span>해.운.대</span><span>13</span></div>
+</section>
+
+<!-- 14. Ops metrics -->
+<section class="slide">
+  <div class="sec">04 평가 결과</div>
+  <h1>운영 지표: 응답 시간 · 오류율 · 토큰</h1>
+  <table class="t body">
+    <tr><th>임베딩 · 방식</th><th class="r">요청</th><th class="r">오류</th><th class="r">평균 응답</th><th class="r">입력 토큰 합계</th><th class="r">출력 토큰 합계</th></tr>
+    <tr><td>BGE Naive</td><td class="r">60</td><td class="r">0 (0%)</td><td class="r">9.72초</td><td class="r">136,733</td><td class="r">37,968</td></tr>
+    <tr><td>BGE Hybrid</td><td class="r">60</td><td class="r">0 (0%)</td><td class="r best">9.37초</td><td class="r">146,185</td><td class="r">31,178</td></tr>
+    <tr class="pick"><td>BGE Hybrid + Reranker</td><td class="r">60</td><td class="r">0 (0%)</td><td class="r">13.38초</td><td class="r">148,517</td><td class="r best">29,841</td></tr>
+    <tr class="grp"><td>Qwen Naive</td><td class="r">60</td><td class="r">0 (0%)</td><td class="r">12.18초</td><td class="r">148,772</td><td class="r">37,326</td></tr>
+    <tr><td>Qwen Hybrid</td><td class="r">60</td><td class="r bad">1 (1.7%)</td><td class="r">12.58초 (n=59)</td><td class="r">150,683 (n=59)</td><td class="r">31,940 (n=59)</td></tr>
+    <tr><td>Qwen Hybrid + Reranker</td><td class="r">60</td><td class="r">0 (0%)</td><td class="r">13.78초</td><td class="r">152,930</td><td class="r">30,650</td></tr>
+  </table>
+  <p class="note">평균 응답은 정상 처리 요청 기준(검색·리랭킹·생성·재시도 포함). 채점 호출은 합산하지 않음. 로컬 추론(Ollama)이라 호출 단가가 없어 비용은 확인 불가, 토큰만 비교.<br>BGE Naive → Hybrid+Reranker: 입력 토큰 +9%, 출력 토큰 −21%. 검색이 좋아질수록 답변이 짧아졌습니다.</p>
+  <div class="foot"><span>해.운.대</span><span>14</span></div>
+</section>
+
+<!-- 15. OpenAI comparison -->
+<section class="slide">
+  <div class="sec">04 평가 결과</div>
+  <h1>gpt-6-luna 비교: 같은 문맥, 다른 생성 모델</h1>
+  <table class="t" style="margin-top:22px;font-size:16px">
+    <tr><th>문항</th><th>생성 모델</th><th class="r">상태</th><th class="r">Faithfulness</th><th class="r">사실·조건·근거·판단</th><th class="r">생성 시간</th><th class="r">입력 / 출력 토큰</th></tr>
+    <tr><td rowspan="2"><b>AS-DEV01</b><br><span style="color:var(--mute);font-size:13px">단순 사실</span></td><td>qwen3:4b</td><td class="r">answered</td><td class="r">0.500</td><td class="r ok">1 · 1 · 1 · 1</td><td class="r">9.7초</td><td class="r">2,761 / 646</td></tr>
+    <tr><td>gpt-6-luna</td><td class="r">answered</td><td class="r best">1.000</td><td class="r ok">1 · 1 · 1 · 1</td><td class="r best">2.9초</td><td class="r">2,425 / 132</td></tr>
+    <tr class="grp"><td rowspan="2"><b>AS-DEV03</b><br><span style="color:var(--mute);font-size:13px">접수 ≠ 확정</span></td><td>qwen3:4b</td><td class="r">answered</td><td class="r">0.714</td><td class="r ok">1 · 1 · 1 · 1</td><td class="r">3.8초</td><td class="r">1,900 / 335</td></tr>
+    <tr><td>gpt-6-luna</td><td class="r">answered</td><td class="r">0.667</td><td class="r ok">1 · 1 · 1 · 1</td><td class="r best">2.6초</td><td class="r">1,698 / 204</td></tr>
+    <tr class="grp"><td rowspan="2"><b>AS-ADD13</b><br><span style="color:var(--mute);font-size:13px">비용 부분 확정</span></td><td>qwen3:4b</td><td class="r">abstained</td><td class="r">0.706</td><td class="r bad">0 · 0 · 0 · 0</td><td class="r">25.9초</td><td class="r">2,248 / 928</td></tr>
+    <tr><td>gpt-6-luna</td><td class="r">abstained</td><td class="r">0.667</td><td class="r bad">0 · 0 · 0 · 0</td><td class="r best">11.1초</td><td class="r">2,017 / 896</td></tr>
+  </table>
+  <div class="callout" style="margin-top:18px;font-size:15px"><b>같은 문맥이면 판단이 같았습니다.</b> 둘 다 2문항 정답, AS-ADD13은 둘 다 확정 가능한 보관료 USD 140까지 보류했습니다.
+    gpt-6-luna는 더 간결하고(출력 토큰 최대 −80%) 빨랐습니다. AS-ADD13 실패는 생성 모델이 아닌 <b>검색 문맥</b> 문제로 보입니다(05장).</div>
+  <p class="note">BGE Hybrid+Reranker의 저장된 3문항 쌍 비교(같은 모델 입력·최종 문맥), 채점은 둘 다 gpt-6-luna.<br>생성 시간만 비교(서비스 전체 시간 아님). 토크나이저가 달라 토큰 수는 참고용.</p>
+  <div class="foot"><span>해.운.대</span><span>15</span></div>
+</section>
+
+<!-- 16. Security & tracing -->
+<section class="slide">
+  <div class="sec">04 평가 결과</div>
+  <h1>보안 비교와 실행 기록</h1>
+  <div class="grid2 body">
+    <div>
+      <h3 style="font-size:20px;color:var(--navy);margin-bottom:12px">보안 답변 4개 (질문 2 × 기본/방어 프롬프트)</h3>
+      <p style="font-size:15px;color:var(--sub);line-height:1.6;margin-bottom:14px">한 번 검색해 저장한 같은 문맥을 두 프롬프트에 넣고, 방어 문장만 추가해 비교합니다. 공격 노출 여부 · 공격 채택 · 업무 정답 · 불필요한 거절을 나눠 판정합니다.</p>
+      <div class="placeholder">[발표 전 입력] 보안 실행 결과 4건<br>질문 ID · 공격 노출 여부 · 기본 답변 판정 · 방어 답변 판정<br><span style="font-size:13px">이 PC에서 runtime/security 결과를 찾지 못했습니다.</span></div>
+    </div>
+    <div class="card">
+      <h3>Langfuse 실행 기록</h3>
+      <ul>
+        <li>질문 · 검색 결과 · 실제 모델 입력/출력 · 상태 · 인용 · 시간 · 토큰을 <b>같은 요청 ID</b>로 기록</li>
+        <li>Faithfulness·Judge 점수를 trace에 연결</li>
+        <li>서비스 트래픽에 실시간 Judge 적용, 프롬프트 버전 고정</li>
+        <li>정답 근거를 못 찾은 경우와 찾았지만 문맥에서 빠진 경우를 구분해 추적</li>
+      </ul>
+    </div>
+  </div>
+  <div class="foot"><span>해.운.대</span><span>16</span></div>
+</section>
+
+<!-- 17. Challenges -->
+<section class="slide">
+  <div class="sec">05 주요 고민과 해결</div>
+  <h1>시행착오와 대응</h1>
+  <table class="t body" style="font-size:15px">
+    <tr><th style="width:220px">문제</th><th>대응</th><th style="width:300px">확인 방법</th></tr>
+    <tr><td><b>로컬 Judge가 채점 불능</b></td><td>qwen3:4b 겸용 채점이 0점·'...'만 출력해 결과 폐기, instruct-2507 모델로 교체</td><td>무효 결과는 별도 보관, 재채점</td></tr>
+    <tr><td><b>Judge 오판</b></td><td>대표 10건 시험에서 참고 답변 착각 오판 2/6 확인</td><td>대표 사례를 사람이 원문과 대조</td></tr>
+    <tr><td><b>첫 요청 지연</b></td><td>서버 시작 시 reranker 워밍업</td><td>준비 시간을 로그에 분리 기록</td></tr>
+    <tr><td><b>BM25 재준비 비용</b></td><td>인덱스 버전별 캐시 재사용</td><td>인덱스 fingerprint · 단계별 지연</td></tr>
+    <tr><td><b>선호·근거 혼입 위험</b></td><td>선호는 별도 구획, 3건 · 200자 제한</td><td>실제 모델 입력 확인</td></tr>
+    <tr><td><b>인용·형식 오류</b></td><td>JSON 스키마 · 인용 ID · 결과 상태 검증</td><td>진단셋, 대표 원문 대조</td></tr>
+  </table>
+  <div class="foot"><span>해.운.대</span><span>17</span></div>
+</section>
+
+<!-- 18. Failure case -->
+<section class="slide">
+  <div class="sec">05 주요 고민과 해결</div>
+  <h1>실패 사례 분석: AS-ADD13</h1>
+  <p class="lead">"보관료·장비반납지연료·최종 합계 중 지금 확정할 수 있는 항목과 보류할 항목을 구분해 주세요."</p>
+  <div class="grid3 body">
+    <div class="card"><div class="num">기대 답변</div><h3>보관료만 확정</h3><p>승인 APR-DL28-0510이 보관료 무료기간 2일만 허용 → 보관료 USD 140 확정.<br>반납 증빙이 없어 지연료·합계는 보류.</p></div>
+    <div class="card"><div class="num">실제 답변 (두 모델 공통)</div><h3>전부 보류</h3><p>지연료·합계 보류는 맞았지만, 확정할 수 있는 보관료까지 보류해 Judge 4항목 모두 0점.</p></div>
+    <div class="card"><div class="num">원인</div><h3>문맥 자리 낭비</h3><p>정답 문서 3개 중 2개만 회수(Recall@4 0.67).<br><b>최종 4청크 중 3개가 같은 AS004 1쪽</b>의 겹치는 청크였습니다.</p></div>
+  </div>
+  <div class="callout" style="margin-top:26px">개선 방향: 같은 페이지 청크를 하나로 묶는 페이지 단위 중복 제거, 문서 다양성을 고려한 최종 선택. 생성 모델 교체만으로는 해결되지 않습니다.</div>
+  <div class="foot"><span>해.운.대</span><span>18</span></div>
+</section>
+
+<!-- 19. Final selection -->
+<section class="slide">
+  <div class="sec">06 최종 선택과 회고</div>
+  <h1>최종 선택: BGE-M3 + Hybrid + Reranker</h1>
+  <div class="grid2 body">
+    <div>
+      <ul class="b">
+        <li><b>답변 품질 최고:</b> Faithfulness 0.681, 근거 0.932 (6개 구성 중 1위)</li>
+        <li><b>검색:</b> Hit@4 98.3%, Recall@4 60.3% (Qwen 60.9%와 동급)</li>
+        <li><b>안정성:</b> 60문항 오류 0건</li>
+        <li><b>생성 모델:</b> 발제 기준 gpt-6-luna. 같은 문맥에서 로컬 모델과 판단이 같고 더 빠르고 간결함</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>감수한 트레이드오프</h3>
+      <p>BGE Hybrid 대비 평균 응답 +4.0초(9.37초 → 13.38초).<br>대신 Faithfulness +0.15, Recall@4 +5.9%p.</p>
+      <p style="margin-top:12px"><b>지연이 더 중요한 환경이라면</b> BGE Hybrid(9.37초, 조건 0.933)가 대안입니다.</p>
+    </div>
+  </div>
+  <div class="foot"><span>해.운.대</span><span>19</span></div>
+</section>
+
+<!-- 20. Limits & next -->
+<section class="slide">
+  <div class="sec">06 최종 선택과 회고</div>
+  <h1>회고: 배운 점, 한계, 다음 단계</h1>
+  <div class="grid3 body">
+    <div class="card">
+      <h3>배운 점</h3>
+      <ul>
+        <li>Hit만 보면 놓친다. Recall과 실제 최종 문맥까지 봐야 원인이 보인다</li>
+        <li>같은 문맥으로 모델만 바꿔 보면 검색 문제와 생성 문제를 분리할 수 있다</li>
+        <li>자동 채점도 검증 대상이다</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>현재 한계</h3>
+      <ul>
+        <li>공개 평가셋 · 로컬 예비 채점. gpt-6-luna는 3문항 쌍 비교만 수행</li>
+        <li>다중 문서 문항 Recall@4 0.48</li>
+        <li>표 구조 추출 · OCR 미적용</li>
+        <li>개선 전후 동일 조건 실측이 없어 개선율 미제시</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>다음 단계</h3>
+      <ul>
+        <li>페이지 단위 중복 제거, 문서 다양성 기반 선택</li>
+        <li>최종 k · 토큰 예산 조정 실험</li>
+        <li>gpt-6-luna 60문항 × 3방식 공식 실행</li>
+        <li>cold/warm 지연 실측</li>
+      </ul>
+    </div>
+  </div>
+  <div class="foot"><span>해.운.대</span><span>20</span></div>
+</section>
+
+<!-- 21. Closing -->
+<section class="slide cover">
+  <div class="kicker">마무리</div>
+  <h1 style="font-size:44px">문서의 조건과 출처를 지키는<br>업무 지원 RAG</h1>
+  <p class="lead">같은 질문으로 검색 방식을 비교하고, 최종 문맥과 답변을 분리해 검증했습니다.<br>확정할 수 있는 것은 근거와 함께 답하고, 아닌 것은 이유와 함께 보류합니다.</p>
+  <div class="meta">Q&amp;A &nbsp;|&nbsp; 코드: github.com/KimGukNam0816/ragprj</div>
+</section>
+
+</body>
+</html>
