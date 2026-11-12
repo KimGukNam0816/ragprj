@@ -86,5 +86,7 @@ def save_memory(request:MemoryRequest):
     try:
         with gpu_lock:
             return add_memory(request.text,request.user_id)
+    except ServiceError:
+        raise
     except Exception as exc:
         raise HTTPException(502,detail={'code':getattr(exc,'code','memory_error'),'message':getattr(exc,'message','Memory operation failed'),'type':type(exc).__name__}) from None

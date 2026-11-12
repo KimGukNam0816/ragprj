@@ -141,13 +141,20 @@ def check(stage, args):
         require(result['verified'], 'Trace/required observations/input/output not verified')
         return result
     if stage == 'memory':
-        from backend.app.memory import add_memory, search_memory
+        from backend.app.memory import NO_PREFERENCE, add_memory, search_memory, select_preferences
         user = 'setup-' + uuid.uuid4().hex[:12]
         added = add_memory('한국어로 짧고 간결한 답변을 선호합니다.', user)
         own = search_memory('답변 언어와 길이 선호', user)
         other = search_memory('답변 언어와 길이 선호', user + '-other')
         require(bool(added.get('results')) and bool(own.get('results')) and not other.get('results'), 'Memory add/search/isolation failed')
-        return {'user_id': user, 'stored': len(added['results']), 'own_hits': len(own['results']), 'other_hits': 0}
+        # 저장·조회로 끝내지 않고 프롬프트에 실제로 들어갈 문자열까지 확인한다.
+        selection = select_preferences(s, own)
+        require(bool(selection['preferences']),
+                'Stored preference did not survive the relevance/budget filter; check MEMORY_MIN_RELEVANCE_SCORE')
+        return {'user_id': user, 'stored': len(added['results']), 'own_hits': len(own['results']),
+                'other_hits': 0, 'prompt_preferences': selection['preferences'],
+                'dropped': selection['dropped'], 'preference_tokens': selection['estimated_tokens'],
+                'sentinel': NO_PREFERENCE}
     import httpx
     if stage == 'api':
         base = args.api_url.rstrip('/')

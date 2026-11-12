@@ -1,4 +1,3 @@
-import json
 import platform
 import subprocess
 import time
@@ -13,6 +12,7 @@ from .observability import langfuse_client, observation
 from .context_engineering.prompts import RAG_PROMPT
 from .context_engineering import prepare_context, validate_answer
 from .context_engineering.budget import generation_tokenizer
+from .memory.preferences import NO_PREFERENCE, render, select_preferences
 from .observability import verify_trace
 from .observability.usage import usage_details, generation_metadata
 from .providers import Providers
@@ -82,8 +82,11 @@ def run_query(s: Settings, request: QueryRequest, *, entrypoint='cli', run_id=No
         with observation('shipping_rag_query', input={'question': request.question}, metadata={**manifest, 'memory_enabled': request.memory_enabled}) as root:
             trace_id = client.get_current_trace_id() if client else None
             record['trace_id'] = trace_id
-            memory_text='사용하지 않음'
-            if request.memory_enabled:
+            memory_text=NO_PREFERENCE
+            if request.memory_enabled and not s.memory_enabled:
+                # MEMORY_ENABLED는 서버 차단 스위치다. 요청 플래그로 다시 켜지 못한다.
+                warning.append('Memory is disabled on this server; the request flag cannot enable it')
+            if request.memory_enabled and s.memory_enabled:
                 if s.memory_backend == 'dummy':
                     if s.publish_metrics:
                         raise ServiceError('dummy_memory_forbidden', 'Dummy preferences are for integration testing only', 422)
@@ -95,7 +98,13 @@ def run_query(s: Settings, request: QueryRequest, *, entrypoint='cli', run_id=No
                     memories=search_memory(request.question,request.user_id)
                     record['memory_results']=memories
                     record['memory_backend']=s.memory_backend
-                    memory_text=json.dumps(memories,ensure_ascii=False)[:1500]
+                    # 원본 JSON(id·hash·score·created_at)이 아니라 표현 선호 문장만 넣는다.
+                    selection=select_preferences(s,memories)
+                    record['memory_selection']=selection
+                    memory_text=render(selection['preferences'])
+                    if selection['dropped']:
+                        warning.append('Stored preferences were filtered before the prompt: '
+                                       + ', '.join(sorted({d['reason'] for d in selection['dropped']})))
                 except Exception as exc:
                     warning.append('Memory search unavailable: '+type(exc).__name__)
             if fixed_context is None:
