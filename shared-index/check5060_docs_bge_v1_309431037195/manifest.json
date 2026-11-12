@@ -1,0 +1,29 @@
+{
+  "config": {
+    "corpus_hash": "688b20a75cd7e76e65a001b4c5bf452f31370a9b1c533089ef0835203f91aae5",
+    "chunk_file_sha256": "7d1951e584b64b60907466e50607e683dfcbe13e4c4f04af6488042f20994ab1",
+    "model": "bge-m3",
+    "model_digest": "7907646426070047a77226ac3e684fbbe8410524f7b4a74d02837e43f2146bab",
+    "dimensions": 1024,
+    "books": [
+      "AS007"
+    ],
+    "keyword_tokenizer": "codes-ko-bigram-v1",
+    "embedding_context_tokens": 2048
+  },
+  "fingerprint": "3094310371952643d111fd71083d41057e2712e3e5f4330d33627f2657011452",
+  "collection": "check5060_docs_bge_v1_309431037195",
+  "profile": "bge",
+  "scope": "subset",
+  "expected_count": 689,
+  "indexed_count": 689,
+  "complete": true,
+  "corpus_dir": "runtime/5060-check/corpora/advanced-276cbbaddf-all",
+  "cloud_count": 689,
+  "document_count": 1,
+  "bm25_config": {
+    "tokenizer": "codes-ko-bigram-v1",
+    "k1": 1.5,
+    "b": 0.75
+  }
+}

@@ -1,3 +1,8 @@
 # Preserve the exact bytes of the published source corpus on every platform.
 data/**/*.pdf binary
 data/**/*.json -text
+
+# Keep the index builder's exact bytes on every PC (see shared-index/README.md).
+shared-index/** -text
+# cmd.exe can misread labels in LF batch files; check them out with CRLF everywhere.
+*.cmd text eol=crlf
