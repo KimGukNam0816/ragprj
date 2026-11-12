@@ -3,6 +3,12 @@ from huggingface_hub import hf_hub_download
 from tokenizers import Tokenizer
 import json
 
+from ..schemas import ServiceError
+
+
+class _TokenizerUnmapped(ServiceError, ValueError):
+    """미지원 로컬 생성 모델. ValueError도 상속해 기존 except와 호환된다."""
+
 
 @lru_cache(maxsize=1)
 def generation_tokenizer(provider='ollama', model=''):
@@ -14,7 +20,7 @@ def generation_tokenizer(provider='ollama', model=''):
             # 미지원 모델은 근사값을 사용하고 실제 사용량은 API usage로 기록한다.
             return tiktoken.get_encoding('o200k_base')
     if model and not model.lower().startswith('qwen3:4b'):
-        raise ValueError('Local tokenizer mapping is not configured for this model; inject its tokenizer')
+        raise _TokenizerUnmapped('tokenizer_unmapped', 'Local tokenizer mapping is not configured for this model; inject its tokenizer', 502)
     tokenizer = Tokenizer.from_file(hf_hub_download('Qwen/Qwen3-4B', 'tokenizer.json'))
     tokenizer.no_truncation()
     return tokenizer

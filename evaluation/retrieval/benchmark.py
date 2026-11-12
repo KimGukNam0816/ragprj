@@ -10,6 +10,7 @@ from pathlib import Path
 
 from backend.app.artifacts import digest, read_jsonl, write_json, write_jsonl
 from backend.app.config import ROOT, Settings
+from backend.app.observability import pinned_prompt_version
 from backend.app.pipeline import SOURCE_HASHES, run_query
 from backend.app.schemas import QueryRequest
 
@@ -62,6 +63,9 @@ def run_comparison(s: Settings, selection, run_name=None, limit=None):
         if prior['config_hash'] != manifest['config_hash']:
             raise ValueError('Frozen comparison configuration changed; use a new run name')
     write_json(folder/'manifest.json',manifest)
+    # TODO: drop fetch=False once prepare_context(prompt=) uses the fetched template; until then run_query uses
+    # the local template, so the pin must record it (a Langfuse fetch failure would also abort the run for nothing).
+    prompt_version=pinned_prompt_version(folder,fetch=False)
 
     # ── 3. 임베딩 × 검색 방식 × 문항 순서로 실행 (바꾸는 것은 profile·mode 두 가지뿐) ──
     for profile in ['bge','qwen']:
@@ -74,7 +78,7 @@ def run_comparison(s: Settings, selection, run_name=None, limit=None):
                 result={'profile':profile,'mode':mode,'question_id':q['id'],'question':q['question'],'metric_eligible':False}
                 try:
                     # 채팅 앱과 같은 파이프라인(run_query)을 그대로 호출. 기억(Mem0)은 끔
-                    answer, output=run_query(s,QueryRequest(question=q['question'],mode=mode,embedding_profile=profile),run_id=run_name,question_id=q['id'])
+                    answer, output=run_query(s,QueryRequest(question=q['question'],mode=mode,embedding_profile=profile),run_id=run_name,question_id=q['id'],run_kind='comparison',prompt_version=prompt_version)
                     result.update(status='ok',result_path=str(output/'result.json'),response=answer.model_dump())
                 except Exception as exc:
                     # 실패도 결과에 포함 (발제: 좋은 결과만 고르지 않음). 오류율에 집계됨
