@@ -5,6 +5,7 @@ redis·redisvl 패키지는 memory 묶음(uv sync --extra memory)에만 있어�
 """
 
 import json
+import re
 from collections.abc import Callable
 
 from ..config import Settings
@@ -12,6 +13,9 @@ from ..providers import Providers
 
 CACHE_NAME = "shipping_answer_cache"
 SCOPE_FIELD = "scope"  # 임베딩 프로필·검색 모드·인덱스 지문이 같은 답만 돌려준다
+NUMBER_TOKEN_PATTERN = re.compile(
+    r"\d+(?:[.,:/-]\d+)*"
+)  # 50, 2028-05-20, 09:00, 1,000 같은 값
 NEAREST_SEARCH_DISTANCE = (
     1.0  # 코사인 거리 0~2. 1.0 안쪽이면 "비슷한 편"이라 miss 기록용으로 충분
 )
@@ -33,14 +37,15 @@ def build_cache_scope(profile: str, mode: str, index_fingerprint: str) -> str:
 
 
 def find_cached_answer(
-    settings: Settings, question_vector: list[float], scope: str
+    settings: Settings, question: str, question_vector: list[float], scope: str
 ) -> dict | None:
     """같은 범위에서 질문 벡터와 가장 가까운 저장 답. 저장된 것이 없으면 None, Redis 실패는 예외.
 
-    돌려주는 dict: {"is_hit": 임계값 안이면 True, "response": 저장했던 응답 dict,
-    "question": 저장 당시 질문, "distance": 코사인 거리}. 임계값 밖이어도 거리를 돌려줘 miss 이유를 기록할 수 있다.
+    돌려주는 dict: {"is_hit": 임계값 안이고 숫자·날짜도 같으면 True, "response": 저장했던 응답 dict,
+    "question": 저장 당시 질문, "distance": 코사인 거리, "miss_reason": None | "distance" | "numbers_differ"}.
+    임계값 밖이어도 거리를 돌려줘 miss 이유를 기록할 수 있다.
     """
-    return _find_in_cache(get_answer_cache(settings), question_vector, scope)
+    return _find_in_cache(get_answer_cache(settings), question, question_vector, scope)
 
 
 def save_answer(
@@ -100,7 +105,9 @@ def _build_question_embedder(settings: Settings) -> Callable[[str], list[float]]
     return embed_question
 
 
-def _find_in_cache(cache, question_vector: list[float], scope: str) -> dict | None:
+def _find_in_cache(
+    cache, question: str, question_vector: list[float], scope: str
+) -> dict | None:
     from redisvl.query.filter import Tag
 
     nearest = cache.check(
@@ -111,12 +118,33 @@ def _find_in_cache(cache, question_vector: list[float], scope: str) -> dict | No
     if not nearest:
         return None
     distance = float(nearest[0]["vector_distance"])
+    cached_question = nearest[0]["prompt"]
+    miss_reason = _choose_miss_reason(
+        distance, cache.distance_threshold, question, cached_question
+    )
     return {
-        "is_hit": distance <= cache.distance_threshold,
+        "is_hit": miss_reason is None,
         "response": json.loads(nearest[0]["response"]),
-        "question": nearest[0]["prompt"],
+        "question": cached_question,
         "distance": distance,
+        "miss_reason": miss_reason,
     }
+
+
+def _choose_miss_reason(distance, threshold, question, cached_question) -> str | None:
+    """hit이면 None. 숫자·날짜만 다른 질문(50개 vs 70개)은 벡터가 거의 같아서 따로 걸러낸다."""
+    if distance > threshold:
+        return "distance"
+    if not _have_same_numbers(question, cached_question):
+        return "numbers_differ"
+    return None
+
+
+def _have_same_numbers(question: str, cached_question: str) -> bool:
+    """두 질문에 나오는 숫자·날짜 토큰이 (개수까지) 같은지."""
+    return sorted(NUMBER_TOKEN_PATTERN.findall(question)) == sorted(
+        NUMBER_TOKEN_PATTERN.findall(cached_question)
+    )
 
 
 def _store_in_cache(cache, question, question_vector, scope, response: dict) -> None:

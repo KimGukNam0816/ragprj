@@ -50,6 +50,7 @@ def test_cache_hit_answers_without_retrieval_or_llm(
             "response": CACHED_RESPONSE,
             "question": "면제 조건?",
             "distance": 0.01,
+            "miss_reason": None,
         },
     )
     monkeypatch.setattr(

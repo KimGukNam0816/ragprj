@@ -141,7 +141,7 @@ def run_query(s: Settings, request: QueryRequest, *, entrypoint='cli', run_id=No
                 with observation('semantic_cache_lookup', input={'question': request.question, 'scope': cache_scope}) as span:
                     try:
                         question_vector = provider.embed([request.question], request.embedding_profile, query=True)[0]
-                        nearest = find_cached_answer(s, question_vector, cache_scope)
+                        nearest = find_cached_answer(s, request.question, question_vector, cache_scope)
                     except Exception as exc:
                         nearest, cache_scope = None, None
                         warning.append('Semantic cache unavailable: '+type(exc).__name__)
@@ -149,7 +149,7 @@ def run_query(s: Settings, request: QueryRequest, *, entrypoint='cli', run_id=No
                         cached = nearest
                     # miss여도 가장 가까운 저장 질문과 거리를 남겨 임계값을 고를 근거로 쓴다.
                     record['semantic_cache'] = {'scope': cache_scope, 'hit': cached is not None, 'threshold': s.semantic_cache_distance_threshold,
-                                               **({'nearest_question': nearest['question'], 'distance': nearest['distance']} if nearest else {})}
+                                               **({'nearest_question': nearest['question'], 'distance': nearest['distance'], 'miss_reason': nearest['miss_reason']} if nearest else {})}
                     if span:
                         span.update(output=record['semantic_cache'])
             if cached:

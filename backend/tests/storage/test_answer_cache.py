@@ -52,7 +52,7 @@ def test_similar_question_in_same_scope_returns_cached_response():
     try:
         _store_in_cache(cache, "보관료 면제 조건은?", _unit_vector(0), scope, response)
 
-        hit = _find_in_cache(cache, _unit_vector(0), scope)
+        hit = _find_in_cache(cache, "보관료 면제 조건은?", _unit_vector(0), scope)
 
         assert hit["is_hit"] is True
         assert hit["question"] == "보관료 면제 조건은?"
@@ -73,12 +73,18 @@ def test_far_question_or_other_scope_is_a_miss():
             cache, "보관료 면제 조건은?", _unit_vector(0), scope, {"answer": "a"}
         )
 
-        far_question = _find_in_cache(cache, _unit_vector(1), scope)
+        far_question = _find_in_cache(
+            cache, "보관료 면제 조건은?", _unit_vector(1), scope
+        )
         other_index = _find_in_cache(
-            cache, _unit_vector(0), build_cache_scope("bge", "hybrid", "ffffffffffff")
+            cache,
+            "보관료 면제 조건은?",
+            _unit_vector(0),
+            build_cache_scope("bge", "hybrid", "ffffffffffff"),
         )
         other_mode = _find_in_cache(
             cache,
+            "보관료 면제 조건은?",
             _unit_vector(0),
             build_cache_scope("bge", "naive", "abcdef0123456789"),
         )
@@ -90,3 +96,18 @@ def test_far_question_or_other_scope_is_a_miss():
         assert other_index is None and other_mode is None
     finally:
         cache.delete()
+
+
+def test_same_vector_but_different_numbers_is_not_a_hit():
+    """50개 vs 70개처럼 숫자만 다른 질문은 벡터가 거의 같아도 다른 질문이다(Redis 없이 규칙만 검사)."""
+    from backend.app.storage.answer_cache import _choose_miss_reason
+
+    fifty = "2028-05-20 09:00 기준 케이블 드럼 50개 건의 보관료는?"
+    seventy = "2028-05-20 09:00 기준 케이블 드럼 70개 건의 보관료는?"
+    reworded = "케이블 드럼 50개 건 보관료, 2028-05-20 09:00 기준으로 알려줘"
+
+    assert _choose_miss_reason(0.05, 0.1, seventy, fifty) == "numbers_differ"
+    assert (
+        _choose_miss_reason(0.05, 0.1, reworded, fifty) is None
+    )  # 순서만 달라도 같은 값
+    assert _choose_miss_reason(0.2, 0.1, fifty, fifty) == "distance"
