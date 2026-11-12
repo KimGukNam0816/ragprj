@@ -70,7 +70,7 @@ def build_index(s: Settings, corpus: Path, profile: str, books=None, max_page=No
         store.close()
 
 
-def retrieve(s: Settings, provider: Providers, question: str, profile: str, mode: str) -> RetrievalResult:
+def retrieve(s: Settings, provider: Providers, question: str, profile: str, mode: str, query_vector=None) -> RetrievalResult:
     pointer = s.runtime_dir / 'indexes' / f'active_{profile}.json'
     if not pointer.exists():
         raise ServiceError('index_missing', 'Run 02_build_indexes for this embedding profile first')
@@ -88,10 +88,12 @@ def retrieve(s: Settings, provider: Providers, question: str, profile: str, mode
     match = [t for t in tags if t['name'] in {model, model + ':latest'}]
     if not match or match[0]['digest'] != state['config']['model_digest']:
         raise ServiceError('model_version_mismatch', 'Embedding digest changed; build a new versioned index')
-    with observation('query_embedding', kind='embedding', input=question, model=model) as span:
-        vector = provider.embed([question], profile, query=True)[0]
-        if span:
-            span.update(output={'dimensions': len(vector)})
+    vector = query_vector  # 시맨틱 캐시 조회에서 이미 만든 벡터가 있으면 다시 임베딩하지 않는다
+    if vector is None:
+        with observation('query_embedding', kind='embedding', input=question, model=model) as span:
+            vector = provider.embed([question], profile, query=True)[0]
+            if span:
+                span.update(output={'dimensions': len(vector)})
     store = QdrantStore(s)
     try:
         with observation('dense_retrieval', kind='retriever', input={'question': question, 'k': s.dense_candidate_k}) as span:
