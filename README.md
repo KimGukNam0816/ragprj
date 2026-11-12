@@ -1,5 +1,30 @@
 # Advanced 해운 RAG
 
+## 빠른 시작
+
+단계를 하나씩 따라가다 막혔다면, 아래 한 줄이 설치·모델 다운로드·청킹·색인·빌드·실행까지 전부 처리합니다.
+실패하면 **무엇을 고쳐야 하는지 한 줄로 알려 주고 그 자리에서 멈춥니다.**
+
+```powershell
+# Windows PowerShell, 프로젝트 루트에서. 처음 한 번만 -Bootstrap (AS007 한 문서로 색인)
+powershell -ExecutionPolicy Bypass -File scripts\serve.ps1 -Bootstrap
+```
+
+```bash
+# Linux / macOS / WSL
+./scripts/serve.sh --bootstrap
+```
+
+두 번째 실행부터는 `-Bootstrap` / `--bootstrap` 없이 실행하면 바로 서버가 뜹니다.
+채팅 <http://127.0.0.1:3000> · API 문서 <http://127.0.0.1:8000/docs>
+
+**인터넷에 공개하려면: [docs/DEPLOY.md](docs/DEPLOY.md)** (Cloudflare Tunnel · Docker Compose · Vercel)
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\serve.ps1 -Public   # https 공개 주소 발급
+```
+
+아래는 각 단계를 직접 하나씩 실행할 때의 설명입니다.
 새 PC 설치·청킹·색인·API·채팅 실행: **[SETUP.md](SETUP.md)**. 단계별 진단은 `python -m scripts.check_integration --help`를 참조하세요.
 
 구현 경로: **연결 점검 → 청킹·색인 → 실제 리랭커 → 6개 구성 비교 → RAGAS/Judge·운영·보안 집계 → FastAPI/Uvicorn → Next.js/React 채팅**.
@@ -114,6 +139,8 @@ npm start
 ```
 
 채팅: http://127.0.0.1:3000 / API 문서: http://127.0.0.1:8000/docs
+위 네 줄을 대신 실행해 주는 스크립트가 `scripts/serve.ps1`(Windows)·`scripts/serve.sh`입니다.
+인터넷 공개, Docker Compose, 접근 토큰 설정은 [docs/DEPLOY.md](docs/DEPLOY.md)에 정리했습니다.
 Next.js 서버가 `/api/backend/*`를 FastAPI로 프록시하므로 브라우저에 키를 전달하지 않습니다. `BACKEND_URL`은 필요할 때 frontend 서버 환경변수로 지정합니다.
 검색 방식·임베딩 선택, 인용 원문 패널, 실제 처리 시간·토큰·trace ID, 로컬 대화 기록을 제공합니다.
 사용자 기억은 설정 패널에서 명시적으로 선호를 저장하고 켤 수 있습니다. 과제 비교에서는 항상 OFF입니다.

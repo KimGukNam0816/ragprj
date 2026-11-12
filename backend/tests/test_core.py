@@ -67,6 +67,7 @@ def test_index_resumes_failed_batch_without_duplicates(tmp_path, monkeypatch):
     write_json(corpus / 'manifest.json', {'failure_count': 0, 'corpus_hash': 'source', 'scope': 'full'})
     write_jsonl(corpus / 'chunks.jsonl', [{'chunk_id': str(i), 'book_id': 'AS007', 'page': 1, 'text': '문서'} for i in range(5)])
     class Tags:
+        def raise_for_status(self): pass
         def json(self):
             return {'models': [{'name': 'bge-m3:latest', 'digest': 'frozen-model'}]}
     monkeypatch.setattr('backend.app.indexing.httpx.get', lambda *a, **kw: Tags())
@@ -110,3 +111,20 @@ def test_retrieval_metric_matches_project_document_definition():
     assert score['hit_at_4']==1 and score['recall_at_4']==.5
     assert retrieval_scores(ref,[])['recall_at_4']==0
     assert retrieval_scores({'evidence_groups':[]},[])['retrieval_status']=='not_applicable'
+
+
+def test_ollama_down_returns_actionable_message(monkeypatch):
+    """Ollama가 꺼져 있을 때 ConnectError가 아니라 조치 가능한 한국어 메시지를 돌려준다."""
+    import httpx
+    from backend.app.config import Settings
+    from backend.app.providers import ollama_models
+    from backend.app.schemas import ServiceError
+
+    def refuse(*args, **kwargs):
+        raise httpx.ConnectError('connection refused')
+
+    monkeypatch.setattr('backend.app.providers.httpx.get', refuse)
+    with pytest.raises(ServiceError) as caught:
+        ollama_models(Settings(_env_file=None))
+    assert caught.value.code == 'ollama_unavailable'
+    assert 'Ollama' in caught.value.message and '11434' in caught.value.message

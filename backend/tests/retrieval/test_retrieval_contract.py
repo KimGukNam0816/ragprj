@@ -32,6 +32,7 @@ def test_retrieve_modes_keep_contract_without_external_services(tmp_path, monkey
             for i, text in enumerate(['shipping fee invoice', 'shipping booking receipt'])]
     write_jsonl(directory/'chunks.jsonl', rows)
     class Tags:
+        def raise_for_status(self): pass
         def json(self): return {'models':[{'name':'bge-m3', 'digest':'digest'}]}
     monkeypatch.setattr(service.httpx, 'get', lambda *a, **k: Tags())
     monkeypatch.setattr(service, 'observation', lambda *a, **kw: nullcontext(None))

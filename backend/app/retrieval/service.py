@@ -1,12 +1,12 @@
 import json
 import uuid
 from pathlib import Path
-import httpx
+import httpx  # noqa: F401  (테스트가 service.httpx 를 통해 네트워크 호출을 가로챈다)
 from ..artifacts import digest, file_hash, read_jsonl, write_json
 from ..config import Settings
 from ..contracts import RetrievalResult
 from ..observability import observation
-from ..providers import Providers
+from ..providers import Providers, ollama_models
 from ..schemas import ServiceError
 from .bm25 import keyword_tokens, load_bm25, _cached_bm25
 from .fusion import rrf
@@ -18,10 +18,10 @@ def build_index(s: Settings, corpus: Path, profile: str, books=None, max_page=No
     if source['failure_count']:
         raise ValueError('Resolve extraction failures before indexing')
     model, dim, base_name = s.profile(profile)
-    tags = httpx.get(s.ollama_base_url.rstrip('/') + '/api/tags', timeout=15).json()['models']
+    tags = ollama_models(s)
     matches = [t for t in tags if t['name'] in {model, model + ':latest'}]
     if not matches:
-        raise ValueError('Requested embedding model is not installed')
+        raise ValueError(f'임베딩 모델 {model} 이(가) 설치돼 있지 않습니다. ollama pull {model} 후 다시 실행하세요.')
     config = {'corpus_hash': source['corpus_hash'], 'chunk_file_sha256': file_hash(corpus / 'chunks.jsonl'), 'model': model, 'model_digest': matches[0]['digest'], 'dimensions': dim, 'books': sorted(books) if books else None, 'keyword_tokenizer': 'codes-ko-bigram-v1'}
     if max_page:
         config['max_page'] = max_page
@@ -84,7 +84,7 @@ def retrieve(s: Settings, provider: Providers, question: str, profile: str, mode
         raise ServiceError('index_mismatch', 'Embedding profile differs from index manifest')
     if state['config'].get('embedding_context_tokens') != s.embedding_context_tokens:
         raise ServiceError('index_context_mismatch','Embedding context setting changed; rebuild the versioned index')
-    tags = httpx.get(s.ollama_base_url.rstrip('/') + '/api/tags', timeout=15).json()['models']
+    tags = ollama_models(s)
     match = [t for t in tags if t['name'] in {model, model + ':latest'}]
     if not match or match[0]['digest'] != state['config']['model_digest']:
         raise ServiceError('model_version_mismatch', 'Embedding digest changed; build a new versioned index')

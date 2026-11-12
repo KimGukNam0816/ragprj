@@ -124,6 +124,22 @@ def test_warmup_failure_prevents_startup(monkeypatch):
         asyncio.run(run())
 
 
+def test_warmup_failure_can_degrade_instead_of_blocking_startup(monkeypatch):
+    """웹 배포용: 리랭커가 없어도 naive/hybrid로 서비스가 떠야 한다."""
+    import asyncio
+    from backend.app import main
+    monkeypatch.setattr(main, 's', Settings(_env_file=None, reranker_warmup_on_startup=True,
+                                            reranker_warmup_fail_fast=False))
+    def fail(s):
+        raise RuntimeError('GPU unavailable')
+    monkeypatch.setattr('backend.app.reranker.get_reranker', fail)
+    async def run():
+        async with main.lifespan(main.app):
+            assert main.app.state.reranker_warmup['status'] == 'error'
+            assert main.app.state.reranker_warmup['error_type'] == 'RuntimeError'
+    asyncio.run(run())
+
+
 def test_ollama_duration_conversion(monkeypatch, spans):
     def post(url, **kwargs):
         return httpx.Response(200, request=httpx.Request('POST', url), json={

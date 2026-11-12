@@ -32,6 +32,9 @@ dev = ["pytest>=8,<10"]
 
 [tool.pytest.ini_options]
 testpaths = ["backend/tests"]
+# 이 프로젝트는 설치형 패키지가 아니라서 저장소 루트를 직접 import 경로에 넣어야
+# backend/ scripts/ evaluation/ 모듈을 테스트에서 import할 수 있다.
+pythonpath = ["."]
 
 [tool.uv.sources]
 torch = { index = "pytorch-cu128" }

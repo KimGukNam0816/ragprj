@@ -1,0 +1,63 @@
+# 웹 서비스 한 번에 띄우기: Qdrant + FastAPI + Next.js
+#
+#   docker compose up -d --build
+#   → 채팅 http://localhost:3000 / API 문서 http://localhost:8000/docs
+#
+# 생성·임베딩 추론은 Ollama가 담당한다. Ollama는 이 compose 밖(호스트 또는 GPU 서버)에서 돌리고
+# .env 의 OLLAMA_BASE_URL 로 가리킨다. 같은 PC의 Ollama를 쓸 때 기본값은 아래 host.docker.internal 이다.
+
+services:
+  qdrant:
+    image: qdrant/qdrant:v1.12.4
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6333:6333"
+    volumes:
+      - qdrant-storage:/qdrant/storage
+
+  backend:
+    build:
+      context: .
+      dockerfile: deploy/backend.Dockerfile
+      args:
+        WITH_RERANKER: "${WITH_RERANKER:-0}"
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # compose 안에서는 Qdrant가 서비스 이름으로 보인다. .env 값을 덮어쓴다.
+      QDRANT_URL: http://qdrant:6333
+      QDRANT_API_KEY: ""
+      # 호스트에서 도는 Ollama. 리눅스에서는 아래 extra_hosts 가 이 이름을 만들어 준다.
+      OLLAMA_BASE_URL: "${OLLAMA_BASE_URL:-http://host.docker.internal:11434}"
+      DATA_DIR: /app/data
+      RUNTIME_DIR: /app/runtime
+      # 리랭커를 빼고 빌드했을 때 서버가 죽지 않도록 한다.
+      RERANKER_WARMUP_ON_STARTUP: "${WITH_RERANKER:-0}"
+      RERANKER_WARMUP_FAIL_FAST: "false"
+      RERANKER_DEVICE: cpu
+    volumes:
+      - ./data:/app/data:ro
+      - ./runtime:/app/runtime
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - qdrant
+    ports:
+      - "127.0.0.1:8000:8000"
+
+  frontend:
+    build:
+      context: .
+      dockerfile: deploy/frontend.Dockerfile
+    restart: unless-stopped
+    environment:
+      BACKEND_URL: http://backend:8000
+      BACKEND_ACCESS_TOKEN: "${PUBLIC_ACCESS_TOKEN:-}"
+    depends_on:
+      - backend
+    ports:
+      - "3000:3000"
+
+volumes:
+  qdrant-storage:

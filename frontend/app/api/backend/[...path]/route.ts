@@ -9,7 +9,9 @@ async function proxy(req: NextRequest, ctx: { params: Promise<{ path: string[] }
   const search = target.startsWith('evaluation/') ? req.nextUrl.search : '';
   try {
     const response = await fetch(`${process.env.BACKEND_URL || 'http://127.0.0.1:8000'}/${target}${search}`, {
-      method:req.method, headers:{'Content-Type':'application/json','X-Entrypoint':'web'},
+      method:req.method, headers:{'Content-Type':'application/json','X-Entrypoint':'web',
+        // 토큰은 Next 서버에만 있고 브라우저로 내려가지 않는다.
+        ...(process.env.BACKEND_ACCESS_TOKEN?{'X-Access-Token':process.env.BACKEND_ACCESS_TOKEN}:{})},
       body:req.method==='POST'?await req.text():undefined, cache:'no-store', signal:AbortSignal.timeout(180000),
     });
     return new NextResponse(await response.text(),{status:response.status,headers:{'Content-Type':'application/json'}});

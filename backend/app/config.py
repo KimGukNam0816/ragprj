@@ -15,6 +15,10 @@ class Settings(BaseSettings):
     backend_host: str = '127.0.0.1'
     backend_port: int = 8000
     frontend_origin: str = 'http://127.0.0.1:3000'
+    # 공개 배포용. 쉼표로 여러 origin을 적는다. 예: https://chat.example.com,https://www.example.com
+    allowed_origins: str = ''
+    # 값이 있으면 /query, /memory 요청에 X-Access-Token 또는 Bearer 토큰을 요구한다.
+    public_access_token: SecretStr = SecretStr('')
     connection_timeout_seconds: float = 15
     data_dir: Path = ROOT / 'data'
     runtime_dir: Path = ROOT / 'runtime'
@@ -51,6 +55,9 @@ class Settings(BaseSettings):
     reranker_batch_size: int = 2
     reranker_max_length: int = 2048
     reranker_warmup_on_startup: bool = True
+    # 기본은 엄격 모드: 리랭커 준비 실패 시 서버를 띄우지 않아 첫 요청에 실패를 미루지 않는다.
+    # 리랭커 없이도 naive/hybrid로 서비스해야 하는 웹 배포에서는 false로 둔다.
+    reranker_warmup_fail_fast: bool = True
     langfuse_enabled: bool = True
     langfuse_base_url: str = ''
     langfuse_public_key: str = ''
@@ -121,6 +128,12 @@ class Settings(BaseSettings):
 
     def llm_ready(self) -> bool:
         return bool(self.openai_base_url and self.openai_api_key.get_secret_value())
+
+    def cors_origins(self) -> list[str]:
+        origins = [self.frontend_origin, 'http://localhost:3000']
+        origins += [o.strip() for o in self.allowed_origins.split(',') if o.strip()]
+        # 순서를 유지하며 중복만 제거한다.
+        return list(dict.fromkeys(o for o in origins if o))
 
 
 @lru_cache

@@ -63,11 +63,13 @@ def run_query(s: Settings, request: QueryRequest, *, entrypoint='cli', run_id=No
     config['retrieval_mode'] = request.mode
     config['memory_backend'] = s.memory_backend
     if s.generation_llm_provider == 'ollama':
-        import httpx
-        tags = httpx.get(s.ollama_base_url.rstrip('/') + '/api/tags', timeout=15).json()['models']
+        from .providers import ollama_models
+        tags = ollama_models(s)
         matching = [m for m in tags if m['name'] in {s.local_llm_model, s.local_llm_model + ':latest'}]
         if not matching:
-            raise ServiceError('local_model_missing', 'Install the configured local generation model')
+            raise ServiceError('local_model_missing',
+                               f'로컬 생성 모델 {s.local_llm_model} 이(가) 설치돼 있지 않습니다. '
+                               f'ollama pull {s.local_llm_model} 후 다시 시도하세요.')
         config['generation_model_digest'] = matching[0]['digest']
     manifest = {'run_id': run_id, 'request_id': request_id, 'question_id': question_id, 'entrypoint': entrypoint, 'config': config, 'config_hash': digest(config), 'device': gpu_info(), 'platform': platform.platform(), 'metric_eligible': bool(s.publish_metrics and not s.smoke_run), 'started_at': datetime.now(timezone.utc).isoformat()}
     write_json(output / 'manifest.json', manifest)

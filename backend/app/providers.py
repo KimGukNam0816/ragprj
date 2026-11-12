@@ -6,6 +6,18 @@ from .config import Settings
 from .schemas import ServiceError
 
 
+def ollama_models(s: Settings) -> list[dict]:
+    """설치된 Ollama 모델 목록. 서버가 꺼져 있으면 원인을 바로 알 수 있는 메시지로 바꾼다."""
+    try:
+        r = httpx.get(s.ollama_base_url.rstrip('/') + '/api/tags', timeout=15)
+        r.raise_for_status()
+        return r.json()['models']
+    except (httpx.HTTPError, ValueError, KeyError):
+        raise ServiceError('ollama_unavailable',
+                           f'Ollama 서버({s.ollama_base_url})에 연결하지 못했습니다. '
+                           'Ollama 앱을 실행했는지, OLLAMA_BASE_URL 주소가 맞는지 확인하세요.') from None
+
+
 class Providers:
     def __init__(self, s: Settings):
         self.s = s
