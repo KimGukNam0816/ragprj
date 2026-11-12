@@ -36,6 +36,8 @@ backend/app/
   memory/                      정김기보
     mem0_client.py              Mem0 모델·저장소 연결
     service.py                 add_memory/search_memory
+    preferences.py             Mem0 응답 → 프롬프트 선호 문자열 (외부 연결 없음)
+    records.py                 Mem0 응답 행·metadata 읽기 도우미
   context_engineering/         김국남
     builder.py                 prepare_context
     budget.py                  tokenizer·토큰 추정·입력 예산
@@ -85,7 +87,11 @@ chunk = {
 
 ### 2. 사용자 선호
 
-`search_memory(question, user_id) -> MemoryResult`, `add_memory(text, user_id) -> MemoryResult`입니다. 기존 Mem0 dict/list 응답을 그대로 반환합니다. 공통 pipeline이 기존 방식대로 JSON 문자열(최대 1500자)로 바꾸어 `memory_text`로 전달합니다. Context 담당은 Mem0를 직접 호출하지 않습니다. memory_enabled=false면 기존처럼 조회하지 않습니다. 선호는 표현 방식 참고용이며 업무 사실의 출처가 아닙니다.
+`search_memory(question, user_id) -> MemoryResult`, `add_memory(text, user_id) -> MemoryResult`입니다. 기존 Mem0 dict/list 응답을 그대로 반환합니다.
+
+공통 pipeline은 이 응답을 `memory.preferences.select_preferences(settings, result)`로 선호 문장만 뽑아 `memory_text`로 전달합니다. 원본 JSON(`id`·`hash`·`score`·`created_at`·`metadata`)은 프롬프트에 들어가지 않고 실행 기록 `result.json`의 `memory_results`·`memory_selection`에만 남습니다. 선별·정규화 규칙은 [memory 문서](memory.md)에 있습니다. 남는 선호가 없으면 기존과 같은 `'사용하지 않음'`입니다.
+
+Context 담당은 Mem0를 직접 호출하지 않습니다. `QueryRequest.memory_enabled=false`면 기존처럼 조회하지 않고, 서버 설정 `MEMORY_ENABLED=false`면 요청 플래그로도 켤 수 없습니다. 선호는 표현 방식 참고용이며 업무 사실의 출처가 아닙니다.
 
 ### 3. Context 구성
 

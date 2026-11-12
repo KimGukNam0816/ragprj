@@ -14,7 +14,9 @@ def memory_client():
         raise ValueError('This smoke service permits local Mem0 inference only')
     os.environ['MEM0_TELEMETRY']='false'
     from mem0 import Memory
-    history=s.runtime_dir/'mem0/history.db';history.parent.mkdir(parents=True,exist_ok=True)
+    # MEM0_HISTORY_DB_PATH 설정을 따른다. 상대 경로는 runtime_dir 기준으로 푼다.
+    history=s.mem0_history_db_path if s.mem0_history_db_path.is_absolute() else s.runtime_dir/s.mem0_history_db_path
+    history.parent.mkdir(parents=True,exist_ok=True)
     config={'llm':{'provider':'ollama','config':{'model':s.local_mem0_model,'ollama_base_url':s.ollama_base_url,'temperature':0,'max_tokens':1024}},'embedder':{'provider':'ollama','config':{'model':s.mem0_embedding_model,'embedding_dims':s.mem0_embedding_dimensions,'ollama_base_url':s.ollama_base_url}},'vector_store':{'provider':'qdrant','config':{'collection_name':'smoke_'+s.qdrant_memory_collection,'embedding_model_dims':s.mem0_embedding_dimensions,'url':s.qdrant_url,'api_key':s.qdrant_api_key.get_secret_value() or None}},'history_db_path':str(history),'custom_fact_extraction_prompt':'사용자가 명시한 답변 언어·길이·표현 선호만 추출하세요. 예시나 업무 금액을 추가하지 마세요. JSON {"facts":["사용자의 선호"]}만 응답하세요. 명시 선호가 없으면 facts를 빈 배열로 반환하세요.'}
     memory=Memory.from_config(config)
     # Use the same guarded local provider as generation/evaluation. The Mem0 Ollama

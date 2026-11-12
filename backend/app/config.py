@@ -43,6 +43,9 @@ class Settings(BaseSettings):
     mem0_history_db_path: Path = ROOT / 'runtime/mem0/history.db'
     memory_top_k: int = 3
     memory_context_max_tokens: int = 500
+    # Mem0가 점수를 돌려줄 때만 적용한다. 점수 없는 응답은 그대로 통과시킨다.
+    memory_min_relevance_score: float = 0.3
+    memory_preference_max_chars: int = 200
     reranker_model: str = 'Qwen/Qwen3-Reranker-0.6B'
     reranker_device: str = 'auto'
     reranker_batch_size: int = 2
