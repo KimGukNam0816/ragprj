@@ -23,14 +23,15 @@ def chunk(cid, text='보관료는 별도 승인 범위만 면제합니다.'):
 
 
 def test_context_preserves_existing_messages_and_source_mapping():
-    rows = [chunk('c1'), chunk('c2')]
+    rows = [chunk('c1'), chunk('c2', '승인은 비용별로 확인합니다.')]
     result = prepare_context(settings(), '면제 범위는?', rows, tokenizer=CharacterTokenizer())
     source = json.dumps([{k:c[k] for k in ['book_id','page','chunk_id','text']} for c in rows], ensure_ascii=False)
     expected = [{'role': 'system' if m.type == 'system' else 'user', 'content': m.content}
                 for m in RAG_PROMPT.format_messages(question='면제 범위는?', memory='사용하지 않음', context=source)]
     assert result.messages == expected
     assert result.contexts == rows and result.contexts is not rows
-    assert result.estimated_input_tokens == len('\n'.join(m['content'] for m in expected))+256
+    from backend.app.context_engineering.budget import estimate_input_tokens
+    assert result.estimated_input_tokens == estimate_input_tokens(CharacterTokenizer(), expected, 'openai')
     assert '"score"' not in result.messages[1]['content']
 
 
