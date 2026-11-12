@@ -4,6 +4,7 @@ import importlib.util
 import httpx
 
 from .config import Settings
+from .storage.redis_client import check_redis
 
 
 async def check_connections(s: Settings) -> dict:
@@ -48,6 +49,7 @@ async def check_connections(s: Settings) -> dict:
         probe('langfuse', s.langfuse_base_url, '/api/public/projects', auth=(s.langfuse_public_key, s.langfuse_secret_key.get_secret_value()), missing=lf_missing) if s.langfuse_enabled else asyncio.sleep(0, result=('langfuse', {'status': 'disabled', 'message': '비활성'})),
     )
     result = dict(checks)
+    result['redis'] = await asyncio.to_thread(check_redis, s)  # redis 클라이언트는 동기 방식이라 별도 스레드에서 실행
     result['mem0'] = {'status': 'configured' if importlib.util.find_spec('mem0') else 'missing', 'message': 'OSS 패키지 설치됨. 기억 저장·검색은 별도 확인 필요.' if importlib.util.find_spec('mem0') else 'uv sync --extra memory 필요'}
     result['reranker'] = {'status': 'configured' if importlib.util.find_spec('transformers') else 'missing', 'message': '대상 GPU에서 모델 적재 확인 필요' if importlib.util.find_spec('transformers') else '대상 GPU 머신에서 uv sync --extra reranker 필요'}
     return result
