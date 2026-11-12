@@ -155,6 +155,7 @@ def run_query(s: Settings, request: QueryRequest, *, entrypoint='cli', run_id=No
             if cached:
                 warning.append(f"Answer served from semantic cache (distance={cached['distance']:.3f}, cached question: {cached['question']})")
                 response = QueryResponse(**cached['response'], request_id=request_id, trace_id=trace_id, latency_ms=round((time.perf_counter()-started)*1000), warnings=warning, cache_hit=True)
+                contexts = response.contexts  # 아래 live judge가 문맥을 같이 넘겨받는다
             else:
                 if fixed_context is None:
                     contexts, candidates, index = retrieve(s, provider, request.question, request.embedding_profile, request.mode, question_vector)
