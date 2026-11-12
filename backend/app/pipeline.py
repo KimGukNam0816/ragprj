@@ -17,7 +17,7 @@ from .context_engineering.budget import generation_tokenizer
 from .memory.preferences import NO_PREFERENCE, render, select_preferences
 from .providers import Providers
 from .schemas import ModelAnswer, QueryRequest, QueryResponse, ServiceError
-from .storage.answer_cache import build_cache_scope, find_cached_answer, save_answer
+from .storage.answer_cache import build_cache_scope, find_cached_answer, is_same_question, save_answer
 
 # 실행 시작 시 소스 파일을 한 번 보존한다. 실행 중 디스크 변경과 기록을 구분한다.
 SOURCE_FILES = [p for p in (ROOT/'backend/app').rglob('*.py') if '__pycache__' not in p.parts]
@@ -142,6 +142,10 @@ def run_query(s: Settings, request: QueryRequest, *, entrypoint='cli', run_id=No
                     try:
                         question_vector = provider.embed([request.question], request.embedding_profile, query=True)[0]
                         nearest = find_cached_answer(s, request.question, question_vector, cache_scope)
+                        if nearest and nearest['is_hit'] and s.semantic_cache_llm_check:
+                            # 벡터·규칙을 통과한 후보만 LLM에게 같은 질문인지 묻는다. 품목처럼 규칙이 못 잡는 차이를 거른다.
+                            if not is_same_question(provider, request.question, nearest['question']):
+                                nearest.update(is_hit=False, miss_reason='llm_says_different')
                     except Exception as exc:
                         nearest, cache_scope = None, None
                         warning.append('Semantic cache unavailable: '+type(exc).__name__)

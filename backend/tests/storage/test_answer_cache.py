@@ -130,3 +130,13 @@ def test_same_vector_but_different_company_or_code_is_not_a_hit():
     assert _choose_miss_reason(0.05, 0.1, other_company, base) == "key_tokens_differ"
     assert _choose_miss_reason(0.05, 0.1, reworded, base) is None
     assert _choose_miss_reason(0.01, 0.1, other_code, code) == "key_tokens_differ"
+
+
+def test_unreadable_llm_verdict_counts_as_different_question():
+    """판정 JSON이 깨지거나 키가 없으면 안전한 쪽(다른 질문)으로 본다."""
+    from backend.app.storage.answer_cache import _parse_same_question
+
+    assert _parse_same_question('{"same_question": true}') is True
+    assert _parse_same_question('{"same_question": false}') is False
+    assert _parse_same_question('{"answer": "..."}') is False
+    assert _parse_same_question("같은 질문입니다") is False

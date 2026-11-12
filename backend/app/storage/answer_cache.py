@@ -24,6 +24,17 @@ KEY_TOKEN_PATTERNS = (
 NEAREST_SEARCH_DISTANCE = (
     1.0  # 코사인 거리 0~2. 1.0 안쪽이면 "비슷한 편"이라 miss 기록용으로 충분
 )
+SAME_QUESTION_SCHEMA = {
+    "type": "object",
+    "properties": {"same_question": {"type": "boolean"}},
+    "required": ["same_question"],
+}
+SAME_QUESTION_INSTRUCTION = (
+    "두 질문이 같은 답을 받아야 하는 같은 질문인지 판정한다. "
+    "회사명·품목·수량·날짜·코드 중 하나라도 다르면 다른 질문이다. "
+    "표현만 다르고 묻는 대상과 값이 모두 같으면 같은 질문이다. "
+    'JSON {"same_question": true|false}만 출력한다.'
+)
 RESPONSE_FIELDS_NOT_CACHED = {
     "request_id",
     "trace_id",
@@ -64,6 +75,16 @@ def save_answer(
     _store_in_cache(
         get_answer_cache(settings), question, question_vector, scope, response
     )
+
+
+def is_same_question(provider: Providers, question: str, cached_question: str) -> bool:
+    """LLM에게 두 질문이 같은 질문인지 묻는다. 답을 읽을 수 없으면 다른 질문으로 본다(안전한 쪽)."""
+    messages = [
+        {"role": "system", "content": SAME_QUESTION_INSTRUCTION},
+        {"role": "user", "content": f"질문1: {cached_question}\n질문2: {question}"},
+    ]
+    generated = provider.chat(messages, schema=SAME_QUESTION_SCHEMA)
+    return _parse_same_question(generated["content"])
 
 
 def get_answer_cache(settings: Settings):
@@ -151,6 +172,13 @@ def _extract_key_tokens(question: str) -> list[str]:
     for pattern in KEY_TOKEN_PATTERNS:
         tokens.extend(pattern.findall(question))
     return sorted(tokens)
+
+
+def _parse_same_question(content: str) -> bool:
+    try:
+        return json.loads(content).get("same_question") is True
+    except (json.JSONDecodeError, AttributeError):
+        return False
 
 
 def _store_in_cache(cache, question, question_vector, scope, response: dict) -> None:
