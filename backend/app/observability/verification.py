@@ -1,38 +1,47 @@
 import json
 import time
-from datetime import datetime, timedelta, timezone
+
+from . import query
+from .tracing import ROOT_NAME
+
+RETRIEVAL_SPANS = frozenset({'query_embedding', 'dense_retrieval'})
+CONTEXT_SPANS = frozenset({'context_budget', 'context_prompt'})   # span names from context_engineering/builder.py
+ANSWER_SPANS = frozenset({'answer_generation', 'output_validation'})
 
 
-def verify_trace(s, trace_id, request_id, started_at=None):
-    """Read back exported trace, do not equate flush success with ingestion."""
+def required_spans(context_source: str, context_count: int) -> frozenset[str]:
+    """Spans a complete trace must have: retrieval, fixed-context, and zero-context paths."""
+    spans = {ROOT_NAME, *CONTEXT_SPANS}
+    if context_source == 'retrieval':
+        spans |= RETRIEVAL_SPANS
+    if context_count:
+        spans |= ANSWER_SPANS
+    return frozenset(spans)
+
+
+def verify_trace(s, trace_id, request_id, started_at=None, *, attempts=5, wait_seconds=4):
+    """Read the exported trace back; flush success is not ingestion. Retries while Langfuse is still ingesting.
+
+    The root's context_source and context_count choose the required spans. Traces written before
+    record_context existed have neither and are checked as the retrieval path. s and started_at are kept for callers."""
     if not trace_id:
         return {'verified': False, 'reason': 'No trace ID'}
-    import httpx
-    end = datetime.now(timezone.utc)
-    start=datetime.fromisoformat(started_at) if started_at else end-timedelta(hours=1)
-    query_end=min(end,start+timedelta(hours=1))
-    params = {'traceId': trace_id, 'fields': 'core,basic,usage,io,metadata', 'fromStartTime': (start-timedelta(minutes=1)).isoformat(), 'toStartTime': query_end.isoformat(), 'limit': 100}
-    last_status = None
-    for attempt in range(5):
-        try:
-            r = httpx.get(s.langfuse_base_url.rstrip('/') + '/api/public/v2/observations', params=params, auth=(s.langfuse_public_key, s.langfuse_secret_key.get_secret_value()), timeout=15)
-            last_status = r.status_code
-            if r.is_success:
-                data = r.json()
-                rows = [x for x in data.get('data', []) if x.get('traceId') == trace_id]
-                names = {x.get('name') for x in rows}
-                generation = next((x for x in rows if x.get('name') == 'answer_generation'), {})
-                required = {'shipping_rag_query', 'query_embedding', 'dense_retrieval', 'answer_generation', 'output_validation'}
-                io_available = bool(generation.get('input') and generation.get('output'))
-                verified = request_id in json.dumps(rows) and required <= names and io_available
-                if verified:
-                    return {'verified': True, 'api': 'v2/observations', 'trace_id': trace_id, 'observation_count': len(rows), 'names': sorted(names), 'generation_io_available': io_available}
-            if r.status_code == 429:
-                delay = min(10, max(2, int(r.headers.get('retry-after', '2'))))
-                time.sleep(delay)
-                continue
-        except httpx.HTTPError:
-            pass
-        time.sleep(4)
-    return {'verified': False, 'trace_id': trace_id, 'http_status': last_status, 'reason': 'Required observations not readable yet; verify in Langfuse'}
-
+    missing = []
+    for attempt in range(attempts):
+        rows = query.get_trace(trace_id)
+        names = {row.get('name') for row in rows}
+        root = query.root_of(rows)
+        metadata = root.get('metadata') or {}
+        # shortcut: the API may return metadata values as JSON strings ('"fixed"', '2'); not yet seen on Cloud for these keys.
+        source = str(metadata.get('context_source', 'retrieval')).strip('"')
+        required = required_spans(source, int(str(metadata.get('context_count', 1))))
+        generation = next((row for row in rows if row.get('name') == 'answer_generation'), {})
+        io_available = 'answer_generation' not in required or bool(generation.get('input') and generation.get('output'))
+        missing = sorted(required - names)
+        if rows and not missing and io_available and request_id in json.dumps(rows, default=str):
+            return {'verified': True, 'api': 'v2/observations', 'trace_id': trace_id, 'observation_count': len(rows),
+                    'names': sorted(n for n in names if n), 'generation_io_available': io_available}
+        if attempt + 1 < attempts:
+            time.sleep(wait_seconds)
+    return {'verified': False, 'trace_id': trace_id, 'missing': missing,
+            'reason': 'Required observations not readable yet; verify in Langfuse'}

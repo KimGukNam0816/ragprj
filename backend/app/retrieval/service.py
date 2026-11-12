@@ -5,7 +5,7 @@ import httpx
 from ..artifacts import digest, file_hash, read_jsonl, write_json
 from ..config import Settings
 from ..contracts import RetrievalResult
-from ..observability import observation
+from ..observability import observation, rank_list
 from ..providers import Providers
 from ..schemas import ServiceError
 from .bm25 import keyword_tokens, load_bm25, _cached_bm25
@@ -97,7 +97,7 @@ def retrieve(s: Settings, provider: Providers, question: str, profile: str, mode
         with observation('dense_retrieval', kind='retriever', input={'question': question, 'k': s.dense_candidate_k}) as span:
             rows = store.search(state['collection'], vector, s.dense_candidate_k)
             if span:
-                span.update(output=rows)
+                span.update(output=rows, metadata={'ranks': rank_list(rows)})
     finally:
         store.close()
     if mode != 'naive':
@@ -108,11 +108,12 @@ def retrieve(s: Settings, provider: Providers, question: str, profile: str, mode
             keyword_rows = [{**chunks[i], 'score': float(scores[i])} for i in order if scores[i] > 0]
             rows = rrf([rows, keyword_rows], s.rrf_k)
             if span:
-                span.update(output=rows, metadata={'index_fingerprint': state['fingerprint'], 'bm25_cache': 'versioned_process_cache'})
+                span.update(output=rows, metadata={'index_fingerprint': state['fingerprint'], 'bm25_cache': 'versioned_process_cache',
+                                                    'ranks': rank_list(rows), 'bm25_ranks': rank_list(keyword_rows)})
     if mode == 'hybrid_rerank':
         from .reranker import get_reranker
         with observation('reranking', kind='retriever', input={'question': question, 'candidates': rows[:s.rerank_candidate_k]}) as span:
             rows = get_reranker(s).rank(question, rows[:s.rerank_candidate_k])
             if span:
-                span.update(output=rows)
+                span.update(output=rows, metadata={'ranks': rank_list(rows)})
     return RetrievalResult(rows[:s.final_top_k], rows, state)

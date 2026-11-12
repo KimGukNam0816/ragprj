@@ -8,13 +8,12 @@ from datetime import datetime, timezone
 from .artifacts import digest, file_hash, write_json
 from .config import ROOT, Settings
 from .retrieval.service import retrieve
-from .observability import langfuse_client, observation
+from .observability import (ResolvedPrompt, generation_metadata, generation_parameters, observation, query_trace,
+                            submit_live_judge, usage_details, verify_trace)
 from .context_engineering.prompts import RAG_PROMPT
 from .context_engineering import prepare_context, validate_answer
 from .context_engineering.budget import generation_tokenizer
 from .memory.preferences import NO_PREFERENCE, render, select_preferences
-from .observability import verify_trace
-from .observability.usage import usage_details, generation_metadata
 from .providers import Providers
 from .schemas import ModelAnswer, QueryRequest, QueryResponse, ServiceError
 
@@ -33,7 +32,7 @@ def gpu_info():
         return 'unavailable'
 
 
-def run_query(s: Settings, request: QueryRequest, *, entrypoint='cli', run_id=None, question_id=None, fixed_context=None, defense_addition=None, deadline=None):
+def run_query(s: Settings, request: QueryRequest, *, entrypoint='cli', run_id=None, question_id=None, fixed_context=None, defense_addition=None, deadline=None, run_kind='service', prompt_version=None):
     request_started=time.perf_counter()
     s.check_inference_policy()
     if entrypoint not in {'cli', 'api', 'web'}:
@@ -46,7 +45,10 @@ def run_query(s: Settings, request: QueryRequest, *, entrypoint='cli', run_id=No
         raise ValueError('Invalid run ID')
     output = s.runtime_dir / 'runs' / run_id / request_id
     config = {k: getattr(s, k) for k in ['execution_stage', 'generation_llm_provider', 'local_llm_model', 'openai_model', 'embedding_model', 'comparison_embedding_model', 'dense_candidate_k', 'bm25_candidate_k', 'rrf_k', 'rerank_candidate_k', 'final_top_k', 'context_max_tokens', 'local_context_tokens', 'llm_max_output_tokens', 'llm_timeout_seconds', 'llm_max_retries', 'publish_metrics']}
-    config['prompt_sha256'] = digest(RAG_PROMPT.messages[0].prompt.template)
+    # TODO: use resolve_prompt('rag_answer', RAG_PROMPT, version=prompt_version, strict=run_kind != 'service')
+    #       once prepare_context accepts prompt=, so the recorded prompt is always the template really used.
+    prompt = ResolvedPrompt.local('rag_answer', RAG_PROMPT)
+    config.update(prompt.config_fields, defense_sha256=digest(defense_addition) if defense_addition else None)
     config['output_schema_sha256'] = digest(ModelAnswer.model_json_schema())
     config['source_sha256'] = SOURCE_HASHES
     config['uv_lock_sha256'] = LOCK_HASH
@@ -72,15 +74,17 @@ def run_query(s: Settings, request: QueryRequest, *, entrypoint='cli', run_id=No
     manifest = {'run_id': run_id, 'request_id': request_id, 'question_id': question_id, 'entrypoint': entrypoint, 'config': config, 'config_hash': digest(config), 'device': gpu_info(), 'platform': platform.platform(), 'metric_eligible': bool(s.publish_metrics and not s.smoke_run), 'started_at': datetime.now(timezone.utc).isoformat()}
     write_json(output / 'manifest.json', manifest)
     provider = Providers(s)
-    client = langfuse_client()
-    warning = [] if client else ['Langfuse is not configured; tracing is incomplete']
+    trace = query_trace(manifest, kind=run_kind, question=request.question, memory_enabled=request.memory_enabled)
+    warning = [] if trace.enabled else ['Langfuse is not configured; tracing is incomplete']
+    if s.prompt_source == 'langfuse':
+        warning.append('PROMPT_SOURCE=langfuse is not wired into prepare_context yet; local prompt used')
     started = request_started
     provider.deadline=deadline or started+s.request_timeout_seconds
     record = {'request': request.model_dump(), 'warnings': warning}
     trace_id = None
     try:
-        with observation('shipping_rag_query', input={'question': request.question}, metadata={**manifest, 'memory_enabled': request.memory_enabled}) as root:
-            trace_id = client.get_current_trace_id() if client else None
+        with trace:
+            trace_id = trace.id
             record['trace_id'] = trace_id
             memory_text=NO_PREFERENCE
             if request.memory_enabled and not s.memory_enabled:
@@ -121,6 +125,7 @@ def run_query(s: Settings, request: QueryRequest, *, entrypoint='cli', run_id=No
                 warning.append('Subset index: development smoke test only, not a full-corpus evaluation')
             prepared = prepare_context(s, request.question, contexts, memory_text=memory_text,
                                        defense_addition=defense_addition)
+            trace.record_context(prepared, source='fixed' if fixed_context is not None else 'retrieval')
             contexts, messages = prepared.contexts, prepared.messages
             warning.extend(prepared.warnings)
             record.update(final_context=contexts, context_hash=prepared.context_hash,
@@ -131,7 +136,7 @@ def run_query(s: Settings, request: QueryRequest, *, entrypoint='cli', run_id=No
                 generated = {'input_tokens': None, 'output_tokens': None, 'attempts': [], 'model': s.local_llm_model if s.generation_llm_provider == 'ollama' else s.openai_model}
             else:
                 model = s.local_llm_model if s.generation_llm_provider == 'ollama' else s.openai_model
-                with observation('answer_generation', kind='generation', input=messages, model=model, metadata={'provider': s.generation_llm_provider, 'request_id': request_id}) as generation:
+                with observation('answer_generation', kind='generation', input=messages, model=model, prompt=prompt, model_parameters=generation_parameters(s), metadata={'provider': s.generation_llm_provider, 'request_id': request_id}) as generation:
                     generated = provider.chat(messages, schema=ModelAnswer.model_json_schema())
                     record['generation'] = generated
                     if generation:
@@ -144,13 +149,14 @@ def run_query(s: Settings, request: QueryRequest, *, entrypoint='cli', run_id=No
                         validation.update(output=answer.model_dump())
             response = QueryResponse(**answer.model_dump(), request_id=request_id, trace_id=trace_id, mode=request.mode, model=generated['model'], latency_ms=round((time.perf_counter()-started)*1000), input_tokens=generated['input_tokens'], output_tokens=generated['output_tokens'], contexts=contexts, warnings=warning)
             record['response'] = response.model_dump()
-            if root:
-                root.update(output=response.model_dump())
-            if client:
-                client.set_current_trace_io(input={'question': request.question}, output=response.model_dump())
+            trace.finish(response)
+            # 관측 담당(2026-11-12): LIVE_JUDGE_ENABLED일 때만 실서비스 답변을 OpenAI judge로 채점하도록 예약한다.
+            # 응답은 기다리지 않고, 점수는 같은 trace에 붙는다. 꺼져 있으면 아무것도 하지 않는다.
+            submit_live_judge(s, trace, entrypoint=entrypoint, question=request.question, response=record['response'],
+                              contexts=contexts, output=output)
         return response, output
     except Exception as exc:
-        record['error'] = {'code': getattr(exc, 'code', 'pipeline_error'), 'type': type(exc).__name__, 'message': getattr(exc, 'message', 'Pipeline failed; see saved steps'), 'attempts': getattr(exc, 'attempts', [])}
+        record['error'] = {'code': getattr(exc, 'code', 'pipeline_error'), 'type': type(exc).__name__, 'message': getattr(exc, 'message', 'Pipeline failed; see saved steps'), 'reason': getattr(exc, 'reason', None), 'attempts': getattr(exc, 'attempts', [])}
         raise
     finally:
         record['external_inference_attempts'] = provider.external_inference_attempts
@@ -159,10 +165,8 @@ def run_query(s: Settings, request: QueryRequest, *, entrypoint='cli', run_id=No
         manifest['trace_id'] = trace_id
         write_json(output / 'manifest.json', manifest)
         write_json(output / 'result.json', record)
-        if client:
-            try:client.flush()
-            except Exception:
-                record.setdefault('warnings',[]).append('Langfuse flush failed; Cloud verification required')
+        record.update(trace.flush(started))
+        # TODO: latency_ms below is recomputed after the flush and includes it; service_latency_ms is the flush-free value
         total_ms=round((time.perf_counter()-started)*1000)
         record['latency_ms']=total_ms
         if 'response' in record:

@@ -55,6 +55,7 @@ class Settings(BaseSettings):
     langfuse_base_url: str = ''
     langfuse_public_key: str = ''
     langfuse_secret_key: SecretStr = SecretStr('')
+    prompt_source: Literal['local', 'langfuse'] = 'local'
     dense_candidate_k: int = 20
     bm25_candidate_k: int = 20
     rrf_k: int = 60
@@ -72,6 +73,12 @@ class Settings(BaseSettings):
     local_evaluation_model: str = 'qwen3:4b'
     local_mem0_model: str = 'qwen3:4b'
     allow_external_llm: bool = False
+    # 관측 담당(2026-11-12): 실서비스 답변을 응답 직후 OpenAI judge로 채점해 같은 Langfuse trace에 점수를 붙인다.
+    # 기본은 꺼짐. 이 스위치 하나와 OpenAI 주소·키로만 켠다. FORCE_LOCAL_ONLY·ALLOW_EXTERNAL_LLM은 RAG 파이프라인
+    # (생성, 배치 평가, Mem0)의 규칙이라 건드리지 않는다. 주소·키가 없으면 판정만 건너뛰고 경고를 남긴다(질의는 그대로).
+    # 실제로 판정할 때만 /health의 live_judge가 true다.
+    live_judge_enabled: bool = False
+    live_judge_model: str = 'gpt-6-luna'
     llm_max_output_tokens: int = Field(2048, ge=32, le=8192)
     local_context_tokens: int = 16384
     publish_metrics: bool = False

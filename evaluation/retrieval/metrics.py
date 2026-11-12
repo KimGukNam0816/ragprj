@@ -142,3 +142,19 @@ def extended_scores(reference, final_context, candidates, max_k=20):
     }
     result.update(evidence_coverage(reference, final_context))
     return result
+
+
+# ── 관측용: 검색 실패 원인 (Langfuse 점수 first_gold_rank, retrieval_failure_cause) ──
+
+def failure_fields(reference, contexts, candidates=None):
+    """gold_doc_count, first_gold_rank(문서 단위 청크 순위), retrieval_failure_cause. 필수 지표와 섞지 않는 별도 키다.
+
+    contexts는 토큰 예산을 적용한 최종 문맥, candidates는 순위가 있는 검색 후보 전체(없으면 순위 None)."""
+    books = gold_books(reference)
+    if not books:
+        return {'gold_doc_count': 0, 'first_gold_rank': None, 'retrieval_failure_cause': 'no_reference'}
+    rank = first_gold_rank(books, candidates or [], doc_key)
+    # 상위 4위 안에 있었는데 최종 문맥에 없으면 토큰 예산이 뺀 것(context_dropped)이지 순위 밀림이 아니다.
+    cause = ('hit' if books & {doc_key(c) for c in contexts} else 'context_dropped' if rank and rank <= 4
+             else 'rank_pushed' if rank else 'not_in_candidates')
+    return {'gold_doc_count': len(books), 'first_gold_rank': rank, 'retrieval_failure_cause': cause}
