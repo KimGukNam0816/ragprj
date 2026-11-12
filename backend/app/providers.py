@@ -1,3 +1,4 @@
+import threading
 import time
 
 import httpx
@@ -5,6 +6,9 @@ import httpx
 from .config import Settings
 from .schemas import ServiceError
 
+
+# One local GPU behind Ollama: API requests and the live judge's embedding take turns (관측 담당, live judge).
+GPU_LOCK = threading.Lock()
 
 class Providers:
     def __init__(self, s: Settings):
