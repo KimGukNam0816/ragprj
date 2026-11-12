@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 
 from ..config import get_settings
 from ..observability import observation
+from .update_prompt import PREFERENCE_UPDATE_PROMPT
 
 
 @lru_cache(maxsize=1)
@@ -18,6 +19,8 @@ def memory_client():
     history=s.mem0_history_db_path if s.mem0_history_db_path.is_absolute() else s.runtime_dir/s.mem0_history_db_path
     history.parent.mkdir(parents=True,exist_ok=True)
     config={'llm':{'provider':'ollama','config':{'model':s.local_mem0_model,'ollama_base_url':s.ollama_base_url,'temperature':0,'max_tokens':1024}},'embedder':{'provider':'ollama','config':{'model':s.mem0_embedding_model,'embedding_dims':s.mem0_embedding_dimensions,'ollama_base_url':s.ollama_base_url}},'vector_store':{'provider':'qdrant','config':{'collection_name':'smoke_'+s.qdrant_memory_collection,'embedding_model_dims':s.mem0_embedding_dimensions,'url':s.qdrant_url,'api_key':s.qdrant_api_key.get_secret_value() or None}},'history_db_path':str(history),'custom_fact_extraction_prompt':'사용자가 명시한 답변 언어·길이·표현 선호만 추출하세요. 예시나 업무 금액을 추가하지 마세요. JSON {"facts":["사용자의 선호"]}만 응답하세요. 명시 선호가 없으면 facts를 빈 배열로 반환하세요.'}
+    # 추출은 유지하고 두 번째 저장 판단에만 선호 전용 기준을 적용한다.
+    config['custom_update_memory_prompt'] = PREFERENCE_UPDATE_PROMPT
     memory=Memory.from_config(config)
     # Use the same guarded local provider as generation/evaluation. The Mem0 Ollama
     # adapter does not forward think=False on this version, so bridge it explicitly.
@@ -28,6 +31,7 @@ def memory_client():
         id:str
         text:str
         event:Literal['ADD','UPDATE','DELETE','NONE']
+        old_memory:str | None = None
     class Actions(BaseModel):
         memory:list[Action]=Field(max_length=5)
     class LocalMemoryLLM:
