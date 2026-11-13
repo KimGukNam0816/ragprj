@@ -12,10 +12,10 @@
 
 ```powershell
 git pull
-uv sync --extra dev --extra memory   # redis, redisvl 패키지가 추가됐습니다
+uv sync --extra dev --extra memory   # 파이썬 패키지 redis, redisvl이 memory 묶음에 추가됐습니다
 ```
 
-`.env`는 손대지 않아도 됩니다. `REDIS_VECTOR_URL`이 비어 있으면 캐시를 조용히 건너뛰고 예전과 똑같이 검색·생성합니다. 경고도 지연도 없습니다.
+Redis 서버(Docker)는 이 단계에서 필요 없습니다. 위 명령은 파이썬 패키지만 설치합니다. `.env`는 손대지 않아도 됩니다. `REDIS_VECTOR_URL`이 비어 있으면 캐시를 조용히 건너뛰고 예전과 똑같이 검색·생성합니다. 경고도 지연도 없습니다.
 
 ### 2. 캐시를 켤 때
 
