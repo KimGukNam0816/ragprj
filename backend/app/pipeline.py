@@ -41,6 +41,8 @@ def _semantic_cache_scope(s: Settings, request: QueryRequest, fixed_context, def
     """
     if not s.semantic_cache_enabled or not request.use_semantic_cache:
         return None
+    if not s.redis_vector_url.get_secret_value():
+        return None  # 주소를 안 채운 팀원은 경고·지연 없이 캐시를 건너뛴다(연결 확인 패널이 설정 필요를 알린다)
     if s.publish_metrics:
         return None  # 공식 평가는 매번 실제 검색·생성을 거쳐야 한다
     if fixed_context is not None or defense_addition is not None:
