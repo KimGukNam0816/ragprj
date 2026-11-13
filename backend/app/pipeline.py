@@ -1,3 +1,4 @@
+import json
 import platform
 import subprocess
 import time
@@ -16,6 +17,7 @@ from .context_engineering.budget import generation_tokenizer
 from .memory.preferences import NO_PREFERENCE, render, select_preferences
 from .providers import Providers
 from .schemas import ModelAnswer, QueryRequest, QueryResponse, ServiceError
+from .storage.answer_cache import build_cache_scope, find_cached_answer, is_same_question, save_answer
 
 # 실행 시작 시 소스 파일을 한 번 보존한다. 실행 중 디스크 변경과 기록을 구분한다.
 SOURCE_FILES = [p for p in (ROOT/'backend/app').rglob('*.py') if '__pycache__' not in p.parts]
@@ -30,6 +32,28 @@ def gpu_info():
         return result.stdout.strip() if result.returncode == 0 else 'unavailable'
     except (OSError, subprocess.TimeoutExpired):
         return 'unavailable'
+
+
+def _semantic_cache_scope(s: Settings, request: QueryRequest, fixed_context, defense_addition):
+    """캐시를 쓸 수 있는 요청이면 범위 문자열, 아니면 None.
+
+    평가용 고정 문맥·방어 문구가 있으면 일반 답과 다르고, 기억(선호)이 켜지면 사용자마다 답이 달라 쓰지 않는다.
+    """
+    if not s.semantic_cache_enabled or not request.use_semantic_cache:
+        return None
+    if not s.redis_vector_url.get_secret_value():
+        return None  # 주소를 안 채운 팀원은 경고·지연 없이 캐시를 건너뛴다(연결 확인 패널이 설정 필요를 알린다)
+    if s.publish_metrics:
+        return None  # 공식 평가는 매번 실제 검색·생성을 거쳐야 한다
+    if fixed_context is not None or defense_addition is not None:
+        return None
+    if request.memory_enabled and s.memory_enabled:
+        return None
+    pointer = s.runtime_dir / 'indexes' / f'active_{request.embedding_profile}.json'
+    if not pointer.exists():
+        return None  # retrieve()가 index_missing 오류를 낸다
+    fingerprint = json.loads(pointer.read_text(encoding='utf-8'))['fingerprint']
+    return build_cache_scope(request.embedding_profile, request.mode, fingerprint)
 
 
 def run_query(s: Settings, request: QueryRequest, *, entrypoint='cli', run_id=None, question_id=None, fixed_context=None, defense_addition=None, deadline=None, run_kind='service', prompt_version=None):
@@ -111,43 +135,77 @@ def run_query(s: Settings, request: QueryRequest, *, entrypoint='cli', run_id=No
                                        + ', '.join(sorted({d['reason'] for d in selection['dropped']})))
                 except Exception as exc:
                     warning.append('Memory search unavailable: '+type(exc).__name__)
-            if fixed_context is None:
-                contexts, candidates, index = retrieve(s, provider, request.question, request.embedding_profile, request.mode)
+            # 비슷한 질문의 답이 캐시에 있으면 검색·LLM을 건너뛴다. 캐시 장애는 경고만 남기고 평소대로 답한다.
+            cache_scope = _semantic_cache_scope(s, request, fixed_context, defense_addition)
+            cached = None
+            question_vector = None
+            if cache_scope:
+                with observation('semantic_cache_lookup', input={'question': request.question, 'scope': cache_scope}) as span:
+                    try:
+                        question_vector = provider.embed([request.question], request.embedding_profile, query=True)[0]
+                        nearest = find_cached_answer(s, request.question, question_vector, cache_scope)
+                        if nearest and nearest['is_hit'] and s.semantic_cache_llm_check:
+                            # 벡터·규칙을 통과한 후보만 LLM에게 같은 질문인지 묻는다. 품목처럼 규칙이 못 잡는 차이를 거른다.
+                            if not is_same_question(provider, request.question, nearest['question']):
+                                nearest.update(is_hit=False, miss_reason='llm_says_different')
+                    except Exception as exc:
+                        nearest, cache_scope = None, None
+                        warning.append('Semantic cache unavailable: '+type(exc).__name__)
+                    if nearest and nearest['is_hit']:
+                        cached = nearest
+                    # miss여도 가장 가까운 저장 질문과 거리를 남겨 임계값을 고를 근거로 쓴다.
+                    record['semantic_cache'] = {'scope': cache_scope, 'hit': cached is not None, 'threshold': s.semantic_cache_distance_threshold,
+                                               **({'nearest_question': nearest['question'], 'distance': nearest['distance'], 'miss_reason': nearest['miss_reason']} if nearest else {})}
+                    if span:
+                        span.update(output=record['semantic_cache'])
+            if cached:
+                warning.append(f"Answer served from semantic cache (distance={cached['distance']:.3f}, cached question: {cached['question']})")
+                response = QueryResponse(**cached['response'], request_id=request_id, trace_id=trace_id, latency_ms=round((time.perf_counter()-started)*1000), warnings=warning, cache_hit=True)
+                contexts = response.contexts  # 아래 live judge가 문맥을 같이 넘겨받는다
             else:
-                contexts, index = fixed_context
-                contexts = [dict(c) for c in contexts]
-                candidates = contexts
-            record.update(candidates=candidates, index_fingerprint=index['fingerprint'], index_scope=index['scope'])
-            manifest['index_fingerprint'] = index['fingerprint']
-            if index['scope'] != 'full':
-                if s.publish_metrics:
-                    raise ServiceError('formal_index_scope','Formal evaluation requires the full corpus index')
-                warning.append('Subset index: development smoke test only, not a full-corpus evaluation')
-            prepared = prepare_context(s, request.question, contexts, memory_text=memory_text,
-                                       defense_addition=defense_addition)
-            trace.record_context(prepared, source='fixed' if fixed_context is not None else 'retrieval')
-            contexts, messages = prepared.contexts, prepared.messages
-            warning.extend(prepared.warnings)
-            record.update(final_context=contexts, context_hash=prepared.context_hash,
-                          actual_messages=messages, estimated_input_tokens=prepared.estimated_input_tokens,
-                          dropped_chunk_ids=prepared.dropped_chunk_ids)
-            if not contexts:
-                answer = ModelAnswer(answer='검색된 자료에서 답변에 필요한 근거를 확인하지 못했습니다.', status='abstained', reason='검색 결과 없음', citations=[])
-                generated = {'input_tokens': None, 'output_tokens': None, 'attempts': [], 'model': s.local_llm_model if s.generation_llm_provider == 'ollama' else s.openai_model}
-            else:
-                model = s.local_llm_model if s.generation_llm_provider == 'ollama' else s.openai_model
-                with observation('answer_generation', kind='generation', input=messages, model=model, prompt=prompt, model_parameters=generation_parameters(s), metadata={'provider': s.generation_llm_provider, 'request_id': request_id}) as generation:
-                    generated = provider.chat(messages, schema=ModelAnswer.model_json_schema())
-                    record['generation'] = generated
-                    if generation:
-                        generation.update(output=generated['content'], usage_details=usage_details(generated),
-                                          metadata=generation_metadata(generated, provider=s.generation_llm_provider,
-                                                                       request_id=request_id))
-                with observation('output_validation', input=generated['content']) as validation:
-                    answer = validate_answer(generated['content'], contexts)
-                    if validation:
-                        validation.update(output=answer.model_dump())
-            response = QueryResponse(**answer.model_dump(), request_id=request_id, trace_id=trace_id, mode=request.mode, model=generated['model'], latency_ms=round((time.perf_counter()-started)*1000), input_tokens=generated['input_tokens'], output_tokens=generated['output_tokens'], contexts=contexts, warnings=warning)
+                if fixed_context is None:
+                    contexts, candidates, index = retrieve(s, provider, request.question, request.embedding_profile, request.mode, question_vector)
+                else:
+                    contexts, index = fixed_context
+                    contexts = [dict(c) for c in contexts]
+                    candidates = contexts
+                record.update(candidates=candidates, index_fingerprint=index['fingerprint'], index_scope=index['scope'])
+                manifest['index_fingerprint'] = index['fingerprint']
+                if index['scope'] != 'full':
+                    if s.publish_metrics:
+                        raise ServiceError('formal_index_scope','Formal evaluation requires the full corpus index')
+                    warning.append('Subset index: development smoke test only, not a full-corpus evaluation')
+                prepared = prepare_context(s, request.question, contexts, memory_text=memory_text,
+                                           defense_addition=defense_addition)
+                trace.record_context(prepared, source='fixed' if fixed_context is not None else 'retrieval')
+                contexts, messages = prepared.contexts, prepared.messages
+                warning.extend(prepared.warnings)
+                record.update(final_context=contexts, context_hash=prepared.context_hash,
+                              actual_messages=messages, estimated_input_tokens=prepared.estimated_input_tokens,
+                              dropped_chunk_ids=prepared.dropped_chunk_ids)
+                if not contexts:
+                    answer = ModelAnswer(answer='검색된 자료에서 답변에 필요한 근거를 확인하지 못했습니다.', status='abstained', reason='검색 결과 없음', citations=[])
+                    generated = {'input_tokens': None, 'output_tokens': None, 'attempts': [], 'model': s.local_llm_model if s.generation_llm_provider == 'ollama' else s.openai_model}
+                else:
+                    model = s.local_llm_model if s.generation_llm_provider == 'ollama' else s.openai_model
+                    with observation('answer_generation', kind='generation', input=messages, model=model, prompt=prompt, model_parameters=generation_parameters(s), metadata={'provider': s.generation_llm_provider, 'request_id': request_id}) as generation:
+                        generated = provider.chat(messages, schema=ModelAnswer.model_json_schema())
+                        record['generation'] = generated
+                        if generation:
+                            generation.update(output=generated['content'], usage_details=usage_details(generated),
+                                              metadata=generation_metadata(generated, provider=s.generation_llm_provider,
+                                                                           request_id=request_id))
+                    with observation('output_validation', input=generated['content']) as validation:
+                        answer = validate_answer(generated['content'], contexts)
+                        if validation:
+                            validation.update(output=answer.model_dump())
+                response = QueryResponse(**answer.model_dump(), request_id=request_id, trace_id=trace_id, mode=request.mode, model=generated['model'], latency_ms=round((time.perf_counter()-started)*1000), input_tokens=generated['input_tokens'], output_tokens=generated['output_tokens'], contexts=contexts, warnings=warning)
+                if cache_scope and contexts:
+                    # 문맥이 비어 LLM을 부르지 않은 답은 넣지 않는다. 아끼려는 것이 LLM 호출이기 때문이다.
+                    try:
+                        save_answer(s, request.question, question_vector, cache_scope, response.model_dump())
+                    except Exception as exc:
+                        response.warnings.append('Semantic cache store failed: '+type(exc).__name__)
             record['response'] = response.model_dump()
             trace.finish(response)
             # 관측 담당(2026-11-12): LIVE_JUDGE_ENABLED일 때만 실서비스 답변을 OpenAI judge로 채점하도록 예약한다.

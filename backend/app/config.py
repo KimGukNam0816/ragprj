@@ -36,6 +36,11 @@ class Settings(BaseSettings):
     qdrant_docs_bge_collection: str = 'docs_bge_v1'
     qdrant_docs_qwen_collection: str = 'docs_qwen06_v1'
     qdrant_memory_collection: str = 'mem_users_bge_v1'
+    redis_vector_url: SecretStr = SecretStr('')  # 비밀번호가 들어갈 수 있어서 SecretStr(출력 시 가려짐)
+    semantic_cache_enabled: bool = False  # true면 비슷한 질문의 답을 Redis에서 바로 돌려준다(검색·LLM 생략)
+    semantic_cache_distance_threshold: float = 0.1  # 코사인 거리(1-유사도). 이보다 가까우면 같은 질문으로 본다
+    semantic_cache_ttl_seconds: int = 3600
+    semantic_cache_llm_check: bool = True  # 벡터·규칙을 통과한 후보를 LLM에게 같은 질문인지 한 번 더 묻는다(10토큰, 0.2~0.5초)
     memory_enabled: bool = True
     memory_backend: Literal['mem0', 'dummy'] = 'mem0'
     mem0_embedding_model: str = 'bge-m3'

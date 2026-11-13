@@ -1,0 +1,195 @@
+"""질문·답변 시맨틱 캐시(Redis Stack, redisvl SemanticCache).
+
+비슷한 질문이 들어오면 문서 검색과 LLM 호출을 건너뛰고 저장된 답을 돌려준다.
+redis·redisvl 패키지는 memory 묶음(uv sync --extra memory)에만 있어서 함수 안에서 import한다.
+"""
+
+import json
+import re
+from collections.abc import Callable
+
+from ..config import Settings
+from ..providers import Providers
+
+CACHE_NAME = "shipping_answer_cache"
+SCOPE_FIELD = "scope"  # 임베딩 프로필·검색 모드·인덱스 지문이 같은 답만 돌려준다
+# 답이 질문의 값을 그대로 되풀이하므로, 벡터가 가까워도 이 토큰이 다르면 다른 질문으로 본다.
+KEY_TOKEN_PATTERNS = (
+    re.compile(r"\d+(?:[.,:/-]\d+)*"),  # 50, 2028-05-20, 09:00, 1,000 같은 값
+    re.compile(
+        r"[A-Za-z]+\d[A-Za-z\d-]*"
+    ),  # IS01-051-01, GR26-P0542 같은 문서·기록 코드
+    re.compile(r"[가-힣A-Za-z]{2,6}(?:상공|물류|해운|선사|상사|무역|산업)"),  # 회사명
+)
+NEAREST_SEARCH_DISTANCE = (
+    1.0  # 코사인 거리 0~2. 1.0 안쪽이면 "비슷한 편"이라 miss 기록용으로 충분
+)
+SAME_QUESTION_SCHEMA = {
+    "type": "object",
+    "properties": {"same_question": {"type": "boolean"}},
+    "required": ["same_question"],
+}
+SAME_QUESTION_INSTRUCTION = (
+    "두 질문이 같은 답을 받아야 하는 같은 질문인지 판정한다. "
+    "회사명·품목·수량·날짜·코드 중 하나라도 다르면 다른 질문이다. "
+    "표현만 다르고 묻는 대상과 값이 모두 같으면 같은 질문이다. "
+    'JSON {"same_question": true|false}만 출력한다.'
+)
+RESPONSE_FIELDS_NOT_CACHED = {
+    "request_id",
+    "trace_id",
+    "latency_ms",
+    "warnings",
+    "cache_hit",
+}
+
+# (주소, 임계값, TTL) → 준비가 끝난 캐시. 프로세스당 1개만 만들어 재사용
+_caches_by_target: dict[tuple[str, float, int], object] = {}
+
+
+def build_cache_scope(profile: str, mode: str, index_fingerprint: str) -> str:
+    """캐시 항목을 묶는 범위 값. 인덱스를 다시 만들면 지문이 바뀌어 옛 답이 안 나온다."""
+    return f"{profile}:{mode}:{index_fingerprint[:12]}"
+
+
+def find_cached_answer(
+    settings: Settings, question: str, question_vector: list[float], scope: str
+) -> dict | None:
+    """같은 범위에서 질문 벡터와 가장 가까운 저장 답. 저장된 것이 없으면 None, Redis 실패는 예외.
+
+    돌려주는 dict: {"is_hit": 임계값 안이고 숫자·코드·회사명도 같으면 True, "response": 저장했던 응답 dict,
+    "question": 저장 당시 질문, "distance": 코사인 거리, "miss_reason": None | "distance" | "key_tokens_differ"}.
+    임계값 밖이어도 거리를 돌려줘 miss 이유를 기록할 수 있다.
+    """
+    return _find_in_cache(get_answer_cache(settings), question, question_vector, scope)
+
+
+def save_answer(
+    settings: Settings,
+    question: str,
+    question_vector: list[float],
+    scope: str,
+    response: dict,
+) -> None:
+    """응답을 캐시에 넣는다. 돌아오면 Redis 반영이 끝난 것이다."""
+    _store_in_cache(
+        get_answer_cache(settings), question, question_vector, scope, response
+    )
+
+
+def is_same_question(provider: Providers, question: str, cached_question: str) -> bool:
+    """LLM에게 두 질문이 같은 질문인지 묻는다. 답을 읽을 수 없으면 다른 질문으로 본다(안전한 쪽)."""
+    messages = [
+        {"role": "system", "content": SAME_QUESTION_INSTRUCTION},
+        {"role": "user", "content": f"질문1: {cached_question}\n질문2: {question}"},
+    ]
+    generated = provider.chat(messages, schema=SAME_QUESTION_SCHEMA)
+    return _parse_same_question(generated["content"])
+
+
+def get_answer_cache(settings: Settings):
+    """프로세스당 하나만 만들어 재사용한다. 처음 부를 때 인덱스가 없으면 만든다."""
+    target = (
+        settings.redis_vector_url.get_secret_value(),
+        settings.semantic_cache_distance_threshold,
+        settings.semantic_cache_ttl_seconds,
+    )
+    if target not in _caches_by_target:
+        _caches_by_target[target] = _build_cache(
+            *target, _build_question_embedder(settings)
+        )
+    return _caches_by_target[target]
+
+
+def _build_cache(
+    redis_url: str,
+    distance_threshold: float,
+    ttl_seconds: int,
+    embed_question: Callable[[str], list[float]],
+    name: str = CACHE_NAME,
+):
+    """redisvl 캐시 객체. 벡터는 밖에서 넣지만 차원을 알아내려고 임베딩 함수가 필요하다."""
+    from redisvl.extensions.cache.llm import SemanticCache
+    from redisvl.utils.vectorize import CustomVectorizer
+
+    return SemanticCache(
+        name=name,
+        redis_url=redis_url,
+        distance_threshold=distance_threshold,
+        ttl=ttl_seconds,
+        vectorizer=CustomVectorizer(embed=embed_question),
+        filterable_fields=[{"name": SCOPE_FIELD, "type": "tag"}],
+    )
+
+
+def _build_question_embedder(settings: Settings) -> Callable[[str], list[float]]:
+    provider = Providers(settings)
+
+    def embed_question(text: str) -> list[float]:
+        return provider.embed([text], "bge", query=True)[0]
+
+    return embed_question
+
+
+def _find_in_cache(
+    cache, question: str, question_vector: list[float], scope: str
+) -> dict | None:
+    from redisvl.query.filter import Tag
+
+    nearest = cache.check(
+        vector=question_vector,
+        filter_expression=Tag(SCOPE_FIELD) == scope,
+        distance_threshold=NEAREST_SEARCH_DISTANCE,  # 임계값 밖이어도 가장 가까운 것을 받아 거리를 기록
+    )
+    if not nearest:
+        return None
+    distance = float(nearest[0]["vector_distance"])
+    cached_question = nearest[0]["prompt"]
+    miss_reason = _choose_miss_reason(
+        distance, cache.distance_threshold, question, cached_question
+    )
+    return {
+        "is_hit": miss_reason is None,
+        "response": json.loads(nearest[0]["response"]),
+        "question": cached_question,
+        "distance": distance,
+        "miss_reason": miss_reason,
+    }
+
+
+def _choose_miss_reason(distance, threshold, question, cached_question) -> str | None:
+    """hit이면 None. 숫자·코드·회사명만 다른 질문(50개 vs 70개)은 벡터가 거의 같아서 따로 걸러낸다."""
+    if distance > threshold:
+        return "distance"
+    if _extract_key_tokens(question) != _extract_key_tokens(cached_question):
+        return "key_tokens_differ"
+    return None
+
+
+def _extract_key_tokens(question: str) -> list[str]:
+    """질문에 나오는 숫자·날짜·코드·회사명 토큰을 정렬해 돌려준다(개수까지 비교하려고 list)."""
+    tokens = []
+    for pattern in KEY_TOKEN_PATTERNS:
+        tokens.extend(pattern.findall(question))
+    return sorted(tokens)
+
+
+def _parse_same_question(content: str) -> bool:
+    try:
+        return json.loads(content).get("same_question") is True
+    except (json.JSONDecodeError, AttributeError):
+        return False
+
+
+def _store_in_cache(cache, question, question_vector, scope, response: dict) -> None:
+    cacheable = {
+        key: value
+        for key, value in response.items()
+        if key not in RESPONSE_FIELDS_NOT_CACHED
+    }
+    cache.store(
+        prompt=question,
+        response=json.dumps(cacheable, ensure_ascii=False),
+        vector=question_vector,
+        filters={SCOPE_FIELD: scope},
+    )

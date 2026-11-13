@@ -8,6 +8,8 @@ class QueryRequest(BaseModel):
     mode: Literal['direct', 'naive', 'hybrid', 'hybrid_rerank'] = 'naive'
     embedding_profile: Literal['bge', 'qwen'] = 'bge'
     memory_enabled: bool = False
+    # 시연용 스위치. 서버의 SEMANTIC_CACHE_ENABLED가 꺼져 있으면 요청으로 켤 수 없다.
+    use_semantic_cache: bool = True
     # Local development identity only. Replace with verified auth identity next week.
     user_id: str = Field(default='local-demo-user', pattern=r'^[A-Za-z0-9_-]{1,80}$')
     session_id: str = Field(default='local-demo', pattern=r'^[A-Za-z0-9_-]{1,80}$')
@@ -40,6 +42,7 @@ class QueryResponse(ModelAnswer):
     mode: str
     model: str
     latency_ms: int
+    cache_hit: bool = False  # 시맨틱 캐시에서 돌려준 답이면 True(검색·LLM 생략)
     input_tokens: int | None = None
     output_tokens: int | None = None
     contexts: list[dict] = Field(default_factory=list)
